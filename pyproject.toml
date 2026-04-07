@@ -1,11 +1,22 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "minicoder"
 version = "0.1.0"
-description = "Add your description here"
+description = "a minimal AI-powered CLI coding assistant"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "dotenv>=0.9.9",
     "openai>=2.30.0",
     "rich>=14.3.3",
+    "typer>=0.24.1",
 ]
+
+[project.scripts]
+minicoder = "src.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]

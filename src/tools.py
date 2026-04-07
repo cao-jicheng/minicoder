@@ -2,10 +2,19 @@ import inspect
 import subprocess
 from pathlib import Path
 from typing import List, Dict, Callable
-from config import project_root, dangerous_commands, max_text_length
+from src.paths import get_project_root
+from src.config import dangerous_commands, max_text_length
+
+## 注册工具的 wrapper 函数
+function_registry = {}
+
+def register(func):
+    function_registry[func.__name__] = func
+    return func
 
 ## ===== 定义工具函数 =====
 
+@register
 def run_bash(command: str) -> str:
     """安全地运行shell命令，遇到危险指令，将自动终止。
     
@@ -18,12 +27,13 @@ def run_bash(command: str) -> str:
     if any(cmd in command for cmd in dangerous_commands):
         return "命令中包含危险指令, 终止运行"
     try:
-        r = subprocess.run(command, shell=True, cwd=project_root, capture_output=True, text=True, timeout=120)
+        r = subprocess.run(command, shell=True, cwd=get_project_root(), capture_output=True, text=True, timeout=120)
         out = (r.stdout + r.stderr).strip()
-        return out[:max_text_length] if out else "没有输出内容"
+        return out[:max_text_length] if out else "暂无输出内容"
     except subprocess.TimeoutExpired:
         return "执行命令超时（120秒）"
 
+@register
 def read_file(path: str, limit: int=1000) -> str:
     """读取文件的内容
     
@@ -37,11 +47,12 @@ def read_file(path: str, limit: int=1000) -> str:
     try:
         lines = safe_path(path).read_text().splitlines()
         if limit > 0 and limit < len(lines):
-            lines = lines[:limit] + [f"... ({len(lines) - limit} 行未显示)"]
+            lines = lines[:limit] + [f"... (还有 {len(lines) - limit} 行未显示)"]
         return "\n".join(lines)[:max_text_length]
     except Exception as e:
         return f"读取文件出错: {e}"
 
+@register
 def write_file(path: str, content: str) -> str:
     """向文件中写入数据
     
@@ -60,6 +71,7 @@ def write_file(path: str, content: str) -> str:
     except Exception as e:
         return f"写入文件出错: {e}"
 
+@register
 def edit_file(path: str, old_text: str, new_text: str) -> str:
     """编辑文件，以修改文本内容
     
@@ -83,9 +95,15 @@ def edit_file(path: str, old_text: str, new_text: str) -> str:
 
 ## ===== 以下是辅助函数 =====
 
+def tool_hander(func_name, *args, **kwargs):
+    if func_name in function_registry:
+        return function_registry[func_name](*args, **kwargs)
+    else:
+        return f"工具 {func_name} 未注册"
+
 def safe_path(path: str) -> Path:
     abs_path = Path(path).resolve()
-    if not abs_path.is_relative_to(Path(project_root)):
+    if not abs_path.is_relative_to(Path(get_project_root())):
         raise ValueError(f"访问越界，目录 {path} 不在项目根目录内")
     return abs_path
 
@@ -135,10 +153,13 @@ def parse_docstring(doc: str) -> Dict:
         parts = param.split(separator, maxsplit=1)
         params_dict[parts[0].strip()] = parts[1].strip()
     return {"description": items[0].strip(), "params": params_dict}
-    
 
-if __name__ == "__main__":
-    schema = generate_tools_schema([run_bash, read_file, write_file, edit_file])
-    print(schema)
+tools_schema = generate_tools_schema([run_bash, read_file, write_file, edit_file])
+
+# if __name__ == "__main__":
+#     schema = generate_tools_schema([run_bash, read_file, write_file, edit_file])
+#     print(schema)
+#     out = tool_hander("read_file", path="project/llm.py")
+#     print(out)
 
 
