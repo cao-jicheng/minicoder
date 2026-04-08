@@ -1,24 +1,13 @@
+from __future__ import annotations
+
 import os
 import json
 import time
 from typing import List
-from src.config import ui, token_threshold, max_retry_num, slash_commands
+from src.config import ui, max_retry_num, max_context_tokens
 from src.paths import get_transcripts_dir
 from src.llm import OpenAILLM
 from src.tools import tools_schema, tool_hander
-
-def estimate_tokens(messages: List) -> int:
-    return len(json.dumps(messages, default=str)) // 4
-
-def show_help():
-    from rich.table import Table
-    from rich import box
-    table = Table(box=box.ASCII, show_lines=True)
-    table.add_column("命令", justify="left", style="cyan", no_wrap=True)
-    table.add_column("解释", style="white")
-    for (cmd, desc) in slash_commands.items():
-        table.add_row(cmd, desc)
-    ui.console.print(table)
 
 def auto_compact(llm: OpenAILLM, messages: List) -> List:
     keep_messages = []
@@ -49,9 +38,6 @@ def assemble_system_prompt():
 
 def agent_loop(llm: OpenAILLM, messages: List):
     while True:
-        if estimate_tokens(messages) > token_threshold:
-            ui.warning("上下文即将超限，触发自动压缩")
-            messages[:] = auto_compact(llm, messages)
         # LLM 调用失败重试机制
         retry_num = 0
         while retry_num <= max_retry_num:
@@ -64,6 +50,16 @@ def agent_loop(llm: OpenAILLM, messages: List):
             ui.error(f"大模型调用已重试 {max_retry_num} 次, 仍然失败, 任务终止。\n失败原因：{response['content']}")
             return
         elif response["finish_reason"] != "tool_calls":
-            ui.update(f"任务已完成")
+            ui.update(f"全部任务已完成")
             return
         ui.print(response["content"])
+        tool_results = []
+        for tc in response["tool_calls"]:
+            ui.tool(f"名称：{tc[0]}\n\n参数：{tc[1]}")
+            result = tool_hander(tc[0], tc[1])
+            ui.console.print(f"\n\n执行结果：{result}")
+            tool_results.append({"type": "tool_result", "content": result})
+        messages.append({"role": "user", "content": json.dumps(tool_results, ensure_ascii=False, default=str)})
+        if (response["context_tokens"] / max_context_tokens) > 0.85:
+            ui.warning("上下文即将超限（已达85%），触发自动压缩")
+            messages[:] = auto_compact(llm, messages)

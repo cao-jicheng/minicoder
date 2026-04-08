@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import time
 from datetime import datetime
@@ -8,6 +10,7 @@ from rich.prompt import Prompt, Confirm
 from rich.status import Status
 from rich.markdown import Markdown
 from src.llm import OpenAILLM
+from src.paths import get_project_root, get_permission_mode
 
 minicoder_logo = [
     ' ███╗   ███╗ ██╗ ███╗   ██╗ ██╗  ██████╗  ██████╗  ██████╗   ███████╗ ██████╗ ',
@@ -36,14 +39,12 @@ class AgentUI():
         record: bool=False,
         version: Optional[str]=None,
         llm: Optional[OpenAILLM]=None,
-        trajectory_dir: Optional[Path]=None,
     ):
         self.record = record
         self.console = Console(width=width, record=record)
         self.version = version or "0.1.0"
         self.llm = llm or OpenAILLM()
-        self.trajectory_dir = trajectory_dir or Path(".trajectory")
-        
+
     def set_llm(self, llm: OpenAILLM):
         self.llm = llm
     
@@ -55,14 +56,14 @@ class AgentUI():
     
     def print(self, data: str):
         md_data = Markdown(data)
-        self.console.print(f"\n[white][{time_now()}]🖨️\x20\x20执行结果:[/white]")
+        self.console.print(f"\n[white][{time_now()}]🖨️\x20\x20模型输出:[/white]")
         self.console.print(md_data, style="white")
     
     def think(self, data: str):
         self.console.print(f"\n[magenta][{time_now()}]🧠\x20思考过程:\n\r{data}[/magenta]")
 
     def tool(self, data: str):
-        self.console.print(f"\n[dark_goldenrod][{time_now()}]🛠️\x20\x20工具选用:\n\r{data}[/dark_goldenrod]")
+        self.console.print(f"\n[dark_goldenrod][{time_now()}]🛠️\x20\x20工具调用:\n\r{data}[/dark_goldenrod]")
 
     def result(self, data: str):
         md_data = Markdown(data)
@@ -73,7 +74,7 @@ class AgentUI():
         self.console.print(f"\n[blue][{time_now()}]📝\x20状态更新:\n\r{data}[/blue]") 
     
     def input(self) -> str:
-        response = Prompt.ask("\n用户输入")
+        response = Prompt.ask(f"\n[{get_permission_mode()} 模式]")
         self.console.print(f"\n[green][{time_now()}]🎙️\x20\x20用户输入:\n\r{response}[/green]")
         return response.strip()
 
@@ -92,12 +93,13 @@ class AgentUI():
             status.start()
             self.show_usage()
             self.save_trajectory()
-            time.sleep(2)
+            time.sleep(3)
     
     def save_trajectory(self):
         if not self.record:
             return
-        path = self.trajectory_dir / f"record_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
+        from src.paths import get_trajectory_dir
+        path = get_trajectory_dir() / f"record_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
         data = self.console.export_html()
         with open(path, "w") as f:
             f.write(data)
@@ -114,26 +116,10 @@ class AgentUI():
             f"缓存命中率为 {cache_hit_ratio:.2f} % [/cadet_blue]")
         
     def show_banner(self):
-        from src.paths import get_project_root
         logo = '\n'.join(minicoder_logo)
-        self.console.print(f"[bright_red]{'-'*80}\n\n{logo}\n[/bright_red]")
+        self.console.print(f"[cyan]{'-'*80}\n\n{logo}\n[/cyan]")
         self.console.print(f"[green bold] 当前版本: [/green bold]{self.version}")
+        self.console.print(f"[green bold] 权限模式: [/green bold]{get_permission_mode()}")
         self.console.print(f"[green bold] 语言模型: [/green bold]{self.llm.get_provider()}")
         self.console.print(f"[green bold] 项目路径: [/green bold]{get_project_root()}")
-        self.console.print(f"[bright_red]{'-'*80}[/bright_red]")
-
-
-if __name__ == "__main__":
-    ui = AgentUI()
-    ui.show_banner()
-#     ui.input()
-#     ui.choose(["小学", "初中", "高中", "大学"])
-#     ui.confirm("是否允许继续执行？")
-#     ui.save_html()
-#     ui.error("错误测试")
-#     ui.print("输出测试")
-#     ui.think("推理测试")
-#     ui.tool("工具测试")
-#     ui.result("结果测试")
-#     ui.update("状态测试")
-
+        self.console.print(f"[cyan]{'-'*80}[/cyan]")

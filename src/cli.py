@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 import os
 import typer
+from src.config import ui
 
 app = typer.Typer(
     name="minicoder",
@@ -33,7 +36,7 @@ def plugin_install(
 def main(
     ctx: typer.Context,
     name: str = typer.Option(
-        None,
+        "新建会话",
         "--name",
         help="为当前会话取一个用于显示的名称",
     ),
@@ -55,7 +58,12 @@ def main(
     project_root: str = typer.Option(
         None,
         "--project-root",
-        help="项目工作区根目录",
+        help="项目工作区根目录（默认~/.minicoder）",
+    ),
+    permission_mode: str = typer.Option(
+        "Default",
+        "--permission_mode",
+        help="权限模式（Default、Auto、Plan）",
     ),
 ) -> None:
     if ctx.invoked_subcommand is not None:
@@ -63,10 +71,12 @@ def main(
     # 将命令行传入的参数设置为环境变量
     if project_root:
         os.environ["PROJECT_ROOT"] = project_root
-    
-    from src.config import ui
+    os.environ["PERMISSION_MODE"] = permission_mode
+
     from src.llm import OpenAILLM
-    from src.agent import agent_loop, auto_compact, show_help
+    from src.agent import agent_loop, auto_compact
+    from src.commands import (parse_slash_command, show_help, 
+        set_permission, list_tools, show_status)
 
     llm = OpenAILLM(model=model, base_url=base_url, api_key=api_key)
     ui.set_llm(llm)
@@ -81,14 +91,33 @@ def main(
         if query.lower() in ("quit", "bye", "exit"):
             ui.bye()
             break
-        if query == "/init":
-            pass
-        if query == "/help":
-            show_help()
-            continue
-        if query == "/compact" and context_history:
-            context_history[:] = auto_compact(llm, context_history)
-            continue
+        # 处理斜杠命令
+        if query.startswith('/'):
+            items = parse_slash_command(query)
+            # 处理非法命令的情况
+            if len(items) == 0:
+                continue
+            if items[0] == "/help":
+                show_help()
+                continue
+            if items[0] == "/init":
+                continue
+            if items[0] == "/permission":
+                set_permission(items)
+                continue
+            if items[0] == "/tools":
+                list_tools()
+                continue
+            if items[0] == "/status":
+                show_status()
+                continue
+            if query == "/compact" and context_history:
+                context_history[:] = auto_compact(llm, context_history)
+                continue
         context_history.append({"role": "user", "content": query})
         agent_loop(llm, context_history)
         ui.result(context_history[-1]["content"])
+
+
+if __name__ == "__main__":
+    app()

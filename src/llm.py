@@ -54,7 +54,8 @@ class OpenAILLM:
     def invoke(self, prompts: str|List, **kwargs) -> Dict:
         messages = [{"role": "user", "content": prompts}] if isinstance(prompts, str) else prompts
         try:
-            with Status(status=f"调用 {self.get_provider()} ...") as status:
+            print() # 空一行，便于终端美观显示
+            with Status(status=f"正在调用 {self.get_provider()} ...") as status:
                 status.start()
                 response = self.client.chat.completions.create(
                     model=self.model,
@@ -72,15 +73,10 @@ class OpenAILLM:
                 "content": response.choices[0].message.content,
                 "finish_reason": response.choices[0].finish_reason, # 可选取值有：stop、eos、length、tool_calls
                 "tool_calls": tool_calls,
+                "context_tokens": int(response.usage.prompt_tokens) + int(response.usage.completion_tokens)
             }
         except Exception as e:
             return {
                 "content": f"大模型调用失败 {e}",
                 "finish_reason": "error",
             }
-
-
-if __name__ == "__main__":
-    llm = OpenAILLM()
-    response = llm.invoke("介绍一下你自己")
-    print(response)

@@ -1,4 +1,5 @@
-from src.paths import get_trajectory_dir
+from __future__ import annotations
+
 from src.ui import AgentUI
 
 current_version = "0.1.0"
@@ -8,21 +9,33 @@ valid_msg_types = {"message", "broadcast", "shutdown_request",
 
 dangerous_commands = [
     "rm -rf",
+    "dd if=/dev/zero",
+    "mkfs",
     "sudo",
-    "shutdown",
-    "poweroff",
-    "reboot",
-    "> /dev"
+    "chmod",
+    "chown",
+    "passwd",
+    "crontab",
+    "wget",
+    ":(){ :|:& };:",
+    "/dev",
 ]
 
 slash_commands = {
-    "/init": "初始化项目",
-    "/compact": "压缩上下文",
-    "/status": "显示当前会话的状态信息"
+    "/help": "显示帮助信息",
+    "/init": "初始化项目，生成 PROJECT.md 文件",
+    "/status": "显示当前会话的状态信息",
+    "/permission": "显示或设置权限模式（Default、Auto、Plan）",
+    "/tools": "列出已安装的工具",
+    "/compact": "手动执行上下文压缩",
 }
 
-ui = AgentUI(record=False, version=current_version, trajectory_dir=get_trajectory_dir())
+ui = AgentUI(record=False, version=current_version)
 
-max_text_length = 50000
-token_threshold = 128*1024
+# 工具输出结果的最大字符长度
+max_output_length = 50000
+# 大模型上下文窗口的最大tokens数量
+max_context_tokens = 100*1000
+# 大模型API调用最多重试次数
 max_retry_num = 2
+
