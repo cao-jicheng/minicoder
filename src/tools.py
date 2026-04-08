@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 from json_repair import repair_json
 from typing import List, Dict, Callable, Any
-from src.paths import get_project_root, get_permission_mode
+from src.paths import get_project_root, get_permission_mode, get_skills_dir
 from src.config import ui, dangerous_commands, max_output_length
 
 ## 注册工具的 wrapper 函数
@@ -132,6 +132,30 @@ def safe_path(path: str) -> Path:
         raise ValueError(f"访问越界，路径 {path} 不在项目根目录内")
     return abs_path
 
+def get_skills_meta() -> List:
+    skills = []
+    # 遍历 skills 目录中所有的 SKILL.md 文件
+    for skill_dir in sorted(get_skills_dir().iterdir()):
+        skill_md = skill_dir / "SKILL.md"
+        if not skill_md.exists():
+            continue
+        text = skill_md.read_text()
+        # 匹配 "---" 标识符
+        match = re.match(r"^---\s*\n(.*?)\n---", text, re.DOTALL)
+        if not match:
+            continue
+        meta = {}
+        for line in match.group(1).splitlines():
+            # 同时支持中文冒号和英文冒号
+            separator = '：' if '：' in line else ':'
+            if separator in line:
+                k, _, v = line.partition(separator)
+                meta[k.strip()] = v.strip()
+        name = meta.get("name", skill_dir.name)
+        desc = meta.get("description", "")
+        skills.append((name, desc))
+    return skills
+
 def generate_tools_schema(funcs: List[Callable]) -> List:
     tools_schema = []
     for fn in funcs:
@@ -172,7 +196,7 @@ def parse_docstring(doc: str) -> Dict:
     params_dict = {}
     # 去除第一段包含 “Args” 的部分，从第二部分开始遍历
     for param in fn_params[1:]:
-        # 支持中文引号或英文引号作为分隔符
+        # 支持中文冒号或英文冒号作为分隔符
         separator = '：' if '：' in param else ':'
         # 以第一个引号为准，只分割一次
         parts = param.split(separator, maxsplit=1)
@@ -180,4 +204,3 @@ def parse_docstring(doc: str) -> Dict:
     return {"description": items[0].strip(), "params": params_dict}
 
 tools_schema = generate_tools_schema([run_bash, read_file, write_file, edit_file])
-

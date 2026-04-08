@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import os
 from typing import List
+from rich import box
+from rich.table import Table
 from src.config import ui, slash_commands
+from src.tools import tools_schema, get_skills_meta
 from src.paths import get_project_root, get_permission_mode
 
 def parse_slash_command(command: str) -> List:
@@ -13,8 +16,6 @@ def parse_slash_command(command: str) -> List:
     return items
 
 def show_help():
-    from rich.table import Table
-    from rich import box
     table = Table(box=box.ASCII, show_lines=True)
     table.add_column("命令", style="cyan", no_wrap=True)
     table.add_column("解释", overflow="fold")
@@ -23,12 +24,12 @@ def show_help():
     ui.console.print(table)
 
 def show_status():
-    from src.tools import tools_schema
     status = (f"\n当前版本：{ui.version}\n"
         f"权限模式：{get_permission_mode()}\n"
         f"语言模型：{ui.llm.get_provider()}\n"
         f"项目路径：{get_project_root()}\n"
-        f"工具数量：{len(tools_schema)}"
+        f"工具数量：{len(tools_schema)}\n"
+        f"技能数量：{len(get_skills_meta())}"
     )
     ui.console.print(status)
     ui.show_usage()
@@ -47,9 +48,6 @@ def set_permission(items: List):
     ui.update(f"已设置权限为 {get_permission_mode()} 模式")
 
 def list_tools():
-    from rich.table import Table
-    from rich import box
-    from src.tools import tools_schema
     table = Table(box=box.ASCII, show_lines=True)
     table.add_column("工具", style="cyan", no_wrap=True)
     table.add_column("参数", overflow="fold")
@@ -57,5 +55,13 @@ def list_tools():
     for ts in tools_schema:
         params = [f"{k}: {v['type']}" for k, v in ts["parameters"]["properties"].items()]
         table.add_row(ts["function"]["name"], ', '.join(params), ts["function"]["description"])
+    ui.console.print(table)
+
+def list_skills():
+    table = Table(box=box.ASCII, show_lines=True)
+    table.add_column("技能", style="cyan", no_wrap=True)
+    table.add_column("描述", overflow="fold")
+    for s in get_skills_meta():
+        table.add_row(s[0], s[1])
     ui.console.print(table)
 

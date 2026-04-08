@@ -4,9 +4,6 @@ from src.ui import AgentUI
 
 current_version = "0.1.0"
 
-valid_msg_types = {"message", "broadcast", "shutdown_request",
-    "shutdown_response", "plan_approval_response"}
-
 dangerous_commands = [
     "rm -rf",
     "dd if=/dev/zero",
@@ -23,10 +20,12 @@ dangerous_commands = [
 
 slash_commands = {
     "/help": "显示帮助信息",
-    "/init": "初始化项目，生成 PROJECT.md 文件",
+    "/init": "初始化项目，生成 CLAUDE.md 文件",
     "/status": "显示当前会话的状态信息",
+    "/prompt": "显示系统提示词",
     "/permission": "显示或设置权限模式（Default、Auto、Plan）",
     "/tools": "列出已安装的工具",
+    "/skills": "列出已安装的技能",
     "/compact": "手动执行上下文压缩",
 }
 

@@ -74,14 +74,15 @@ def main(
     os.environ["PERMISSION_MODE"] = permission_mode
 
     from src.llm import OpenAILLM
-    from src.agent import agent_loop, auto_compact
+    from src.agent import agent_loop, auto_compact, prompt_builder
     from src.commands import (parse_slash_command, show_help, 
         set_permission, list_tools, show_status)
 
     llm = OpenAILLM(model=model, base_url=base_url, api_key=api_key)
     ui.set_llm(llm)
     ui.show_banner()
-    context_history = []
+    system_prompt = prompt_builder.build()
+    context_history = [{"role": "system", "content": system_prompt}]
     while True:
         try:
             query = ui.input()
@@ -108,8 +109,14 @@ def main(
             if items[0] == "/tools":
                 list_tools()
                 continue
+            if items[0] == "/skills":
+                list_skills()
+                continue
             if items[0] == "/status":
                 show_status()
+                continue
+            if items[0] == "/prompt":
+                ui.print(system_prompt)
                 continue
             if query == "/compact" and context_history:
                 context_history[:] = auto_compact(llm, context_history)
