@@ -61,7 +61,7 @@ def main(
         help="项目工作区根目录（默认~/.minicoder）",
     ),
     permission_mode: str = typer.Option(
-        "Default",
+        "Auto",
         "--permission_mode",
         help="权限模式（Default、Auto、Plan）",
     ),
@@ -76,7 +76,7 @@ def main(
     from src.llm import OpenAILLM
     from src.agent import agent_loop, auto_compact, prompt_builder
     from src.commands import (parse_slash_command, show_help, 
-        set_permission, list_tools, show_status)
+        set_permission, list_tools, list_skills, show_status, set_model)
 
     llm = OpenAILLM(model=model, base_url=base_url, api_key=api_key)
     ui.set_llm(llm)
@@ -106,6 +106,9 @@ def main(
             if items[0] == "/permission":
                 set_permission(items)
                 continue
+            if items[0] == "/model":
+                set_model(items)
+                continue
             if items[0] == "/tools":
                 list_tools()
                 continue
@@ -118,11 +121,13 @@ def main(
             if items[0] == "/prompt":
                 ui.print(system_prompt)
                 continue
+            # 手动触发上下文压缩
             if query == "/compact" and context_history:
                 context_history[:] = auto_compact(llm, context_history)
                 continue
         context_history.append({"role": "user", "content": query})
         agent_loop(llm, context_history)
+        # 显示最终结果
         ui.result(context_history[-1]["content"])
 
 

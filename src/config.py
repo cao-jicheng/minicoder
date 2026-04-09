@@ -23,6 +23,7 @@ slash_commands = {
     "/init": "初始化项目，生成 CLAUDE.md 文件",
     "/status": "显示当前会话的状态信息",
     "/prompt": "显示系统提示词",
+    "/model": "显示或更换大模型（目前只能从 Siliconflow 系列模型中选择）",
     "/permission": "显示或设置权限模式（Default、Auto、Plan）",
     "/tools": "列出已安装的工具",
     "/skills": "列出已安装的技能",
@@ -37,4 +38,6 @@ max_output_length = 50000
 max_context_tokens = 100*1000
 # 大模型API调用最多重试次数
 max_retry_num = 2
+# 智能体最大循环次数
+max_rounds_elapsed = 50
 

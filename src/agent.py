@@ -7,11 +7,12 @@ import time
 import datetime
 from typing import List
 from pathlib import Path
-from src.config import ui, max_retry_num, max_context_tokens
 from src.llm import OpenAILLM
 from src.paths import (get_project_root, get_transcripts_dir, 
     get_skills_dir, get_memory_dir)
-from src.tools import tools_schema, tool_hander, get_skills_meta
+from src.config import (ui, max_retry_num, max_context_tokens,
+    max_rounds_elapsed)
+from src.tools import todo, tools_schema, tool_hander, get_skills_meta
 
 def auto_compact(llm: OpenAILLM, messages: List) -> List:
     keep_messages = []
@@ -43,11 +44,11 @@ class SystemPromptBuilder:
 
     def _build_core(self) -> str:
         return (
-            f"你是MiniCoder，Caojicheng开发的个人命令行编程助手。你是一个交互式智能体，用来帮助用户完成软件工程相关任务。"
+            f"你是 MiniCoder，Caojicheng 开发的个人命令行编程助手。你是一个交互式智能体，用来帮助用户完成软件工程相关任务。"
             f"用户可能会要求你修复软件缺陷、添加新功能、重构代码、解释代码等。当你收到含糊或泛化的指令时，要结合这些软件工程任务"
             f"以及当前工作目录来理解用户的意图。\n你工作的项目根目录是 {get_project_root()}，你的任何操作都不要超出这个目录，"
             f"以免触发访问越界的错误。\n不要对你没有读过的代码提出修改建议，如果用户询问某个文件，或希望你修改某个文件，先把它读一遍，"
-            f"在提出修改建议之前，先理解已有代码。\n注意不要引入命令注入、XSS、SQL注入以及其他OWASP Top 10类安全漏洞。"
+            f"在提出修改建议之前，先理解已有代码。\n注意不要引入命令注入、XSS、SQL 注入以及其他 OWASP Top 10 类安全漏洞。"
             f"如果你发现自己写出了不安全的代码，应立即修复。\n不要额外添加功能、重构代码，或做超出要求范围的优化。不要给未修改的代码"
             f"补充注释或类型注解。不要为本不可能发生的场景添加错误处理、兜底逻辑或额外校验，要相信内部代码和框架自身的保证。\n"
             f"除非为了完成任务绝对的必要，否则不要创建新文件，应该优先修改已有文件，避免文件膨胀，也能更有效地复用已有工作。\n"
@@ -59,6 +60,7 @@ class SystemPromptBuilder:
         for ts in tools_schema:
             params = [f"{k}: {v['type']}" for k, v in ts["parameters"]["properties"].items()]
             lines.append(f"- {ts['function']['name']}({', '.join(params)})：{ts['function']['description']}")
+        lines.append("\n注意：选择 run_bash 工具不是第一优先级，应该先尝试其他专用工具，无法满足要求时才使用 run_bash 工具兜底。")
         return "\n".join(lines)
 
     def _build_skills(self) -> str:
@@ -116,6 +118,16 @@ class SystemPromptBuilder:
             parts.append(content.strip())
         return "\n\n".join(parts)
 
+    def _build_todo(self) -> str:
+        return (
+            f"# TODO 任务步骤列表\n\n"
+            f"如果用户要处理的是一个复杂的问题，你需要在执行前先将其分解为若干个解决步骤。"
+            f"分解的步骤不要超过 10 个，每个步骤是一个字典格式，包含 content、status、activeForm 三个键。"
+            f"content 是任务描述，应该简洁概要。activeForm是你现在正在做的任务。status 是执行状态，"
+            f"可以取值 pending、in_progress、completed 三者之一。"
+            f"你需要在每一轮执行完成后，调用 update_todo 工具来更新 TODO 任务步骤列表。"
+        )
+
     def _build_environment(self) -> str:
         lines = (
             f"当前日期：{datetime.date.today().isoformat()}\n"
@@ -136,13 +148,20 @@ class SystemPromptBuilder:
         claude = self._build_claude()
         if claude:
             sections.append(claude)
+        sections.append(self._build_todo())
         sections.append(self._build_environment())
         return "\n\n".join(sections)
 
 prompt_builder = SystemPromptBuilder()
 
 def agent_loop(llm: OpenAILLM, messages: List):
+    rounds_elapsed = 0
     while True:
+        rounds_elapsed += 1
+        # 达到最大循环次数
+        if rounds_elapsed > max_rounds_elapsed:
+            ui.warning(f"智能体循环达到最大限制 {max_rounds_elapsed} 次，任务终止。")
+            return
         # LLM 调用失败重试机制
         retry_num = 0
         while retry_num <= max_retry_num:
@@ -151,20 +170,33 @@ def agent_loop(llm: OpenAILLM, messages: List):
                 break
             retry_num += 1
         messages.append({"role": "assistant", "content": response["content"]})
+        # 大模型重试仍然失败，大多数时候是网络原因引起的 timeout
         if response["finish_reason"] == "error":
-            ui.error(f"大模型调用已重试 {max_retry_num} 次, 仍然失败, 任务终止。\n失败原因：{response['content']}")
+            ui.error(f"大模型调用已重试 {max_retry_num} 次，仍然失败，任务终止。\n失败原因：{response['content']}")
             return
+        # 大模型直接输出文本，不再调用工具，任务完成
         elif response["finish_reason"] != "tool_calls":
-            ui.update(f"全部任务已完成")
+            ui.update(f"经过 {rounds_elapsed} 轮循环，全部任务已经完成")
             return
+        # 显示大模型的回答内容
         ui.print(response["content"])
         tool_results = []
+        used_todo = False
         for tc in response["tool_calls"]:
-            ui.tool(f"名称：{tc[0]}\n\n参数：{tc[1]}")
-            result = tool_hander(tc[0], tc[1])
-            ui.console.print(f"\n\n执行结果：{result}")
-            tool_results.append({"type": "tool_result", "content": result})
+            ui.tool(f"名称：{tc[1]}\n\n参数：{tc[2]}")
+            result = tool_hander(tc[1], tc[2])
+            ui.console.print(f"\n\n执行结果：\n{result}")
+            tool_results.append({"type": "tool_result", "tool_calls_id": tc[0], "content": result})
+            if tc[1] == "update_todo":
+                used_todo = True
+        if not used_todo:
+            todo.rounds_since_update += 1
+            reminder = todo.reminder()
+            # 经过3轮还没有更新 todo 任务步骤，则提醒大模型
+            if reminder:
+                tool_results.append({"type": "text", "text": reminder})
         messages.append({"role": "user", "content": json.dumps(tool_results, ensure_ascii=False, default=str)})
+        # 上下文超限，自动压缩
         if (response["context_tokens"] / max_context_tokens) > 0.85:
             ui.warning("上下文即将超限（已达85%），触发自动压缩")
             messages[:] = auto_compact(llm, messages)

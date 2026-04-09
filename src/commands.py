@@ -11,7 +11,7 @@ from src.paths import get_project_root, get_permission_mode
 def parse_slash_command(command: str) -> List:
     items = command.split()
     if items[0] not in slash_commands.keys():
-        ui.warning(f"{items[0]} 不是一个合法的命令")
+        ui.warning(f"{items[0]} 不是一个合法的命令，请通过 /help 查看支持的命令")
         return []
     return items
 
@@ -24,10 +24,8 @@ def show_help():
     ui.console.print(table)
 
 def show_status():
-    status = (f"\n当前版本：{ui.version}\n"
-        f"权限模式：{get_permission_mode()}\n"
-        f"语言模型：{ui.llm.get_provider()}\n"
-        f"项目路径：{get_project_root()}\n"
+    ui.show_banner()
+    status = (
         f"工具数量：{len(tools_schema)}\n"
         f"技能数量：{len(get_skills_meta())}"
     )
@@ -46,6 +44,13 @@ def set_permission(items: List):
     else:
         os.environ["PERMISSION_MODE"] = "Default"
     ui.update(f"已设置权限为 {get_permission_mode()} 模式")
+
+def set_model(items: List):
+    if len(items) == 1: # 只显示当前的大模型
+        ui.console.print(f"当前使用的是 {ui.llm.get_provider()} 大语言模型")
+        return
+    ui.llm.reset_model(items[1])
+    ui.update(f"已更换大语言模型为 {ui.llm.get_provider()}")
 
 def list_tools():
     table = Table(box=box.ASCII, show_lines=True)

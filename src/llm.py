@@ -47,7 +47,7 @@ class OpenAILLM:
         self.cache_hit_tokens = 0
         self.cache_miss_tokens = 0
     
-    def change_model(model_name: str):
+    def reset_model(self, model_name: str):
         self.model = model_name
         self.clear_usage()
 
@@ -68,7 +68,7 @@ class OpenAILLM:
             self.cache_miss_tokens += int(response.usage.prompt_cache_miss_tokens)
             tool_calls = []
             if response.choices[0].finish_reason == "tool_calls":
-                tool_calls = [(t.function.name, t.function.arguments) for t in response.choices[0].message.tool_calls]
+                tool_calls = [(t.id, t.function.name, t.function.arguments) for t in response.choices[0].message.tool_calls]
             return {
                 "content": response.choices[0].message.content,
                 "finish_reason": response.choices[0].finish_reason, # 可选取值有：stop、eos、length、tool_calls
