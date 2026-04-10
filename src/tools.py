@@ -8,10 +8,11 @@ from pathlib import Path
 from dataclasses import dataclass
 from json_repair import repair_json
 from typing import List, Dict, Callable, Any
+from src.llm import OpenAILLM
 from src.config import (ui, dangerous_commands, max_output_length, 
-    max_memory_entities)
+    max_memory_entities, max_subagent_rounds, max_retry_num)
 from src.paths import (get_project_root, get_skills_dir, get_memory_dir,
-    get_permission_mode)
+    get_permission_mode, allow_subagent)
 
 @dataclass
 class TodoItem:
@@ -191,7 +192,7 @@ def _run_tool(func, args) -> Any:
     except Exception as e:
         return f"工具运行出错 {e}"
 
-def tool_hander(name, args) -> Any:
+def tool_hander(name, args, messages) -> Any:
     if name in function_registry:
         args = json.loads(repair_json(args))
         mode = get_permission_mode()
@@ -203,6 +204,11 @@ def tool_hander(name, args) -> Any:
             can_run = (ui.confirm(f"是否允许运行 {name} 工具？") == True)
         if not can_run:
             return f"用户拒绝运行 {name} 工具"
+        if name == "run_subagent":
+            try:
+                return func(args.get("prompt"), messages)
+            except Exception as e:
+                return f"子智能体运行出错 {e}"
         return _run_tool(func, args)
     else:
         return f"工具 {name} 未注册"
@@ -397,5 +403,81 @@ def save_memory(name: str, memory_description: str, memory_type: str, content: s
     """
     return memory_manager.save(name, memory_description, memory_type, content)
 
-tools_schema = generate_tools_schema([run_bash, read_file, write_file, 
-    edit_file, update_todo, load_skill, save_memory])
+@register(require_approval=False)
+def run_subagent(prompt: str, parent_messages: List) -> Dict:
+    """启动一个全新的轻量级子智能体，它在自己的上下文中工作，和父智能体共享文件系统，但只向父智能体返回最终结果。
+    子智能体用于隔离会话，避免大段杂乱的文本污染父智能体的上下文，可用于完成相对独立的小任务。
+
+    Args：
+        prompt：子智能体的提示词
+        parent_messages：父智能体的消息列表，子智能体复用角色为 user、assistant 的消息（此参数由代码自动传入，不需要模型生成）
+    
+    Returns：
+        子智能体执行结果
+    """
+    system_prompt = (
+        f"你是一个轻量级的子智能体，工作目录是 {get_project_root()}\n"
+        f"你可以读文件、写文件、编辑文件、运行shell命令、访问互联网内容\n"
+        f"你需要根据输入的提示词，自主采取行动，并返回最终的执行结果\n"
+        f"你返回的结果需要按条理总结，不能返回大段的原始文本\n"
+    )
+    # 系统提示词中加入工具的描述
+    lines = []
+    for ts in subagent_tools_schema:
+        params = [f"{k}: {v['type']}" for k, v in ts["parameters"]["properties"].items()]
+        lines.append(f"- {ts['function']['name']}({', '.join(params)})：{ts['function']['description']}")
+    system_prompt += "\n# 可供使用的工具（tools）\n\n" + "\n".join(lines)
+    # 子智能体拥有单独的上下文
+    messages = [{"role": "system", "content": system_prompt}]
+    for msg in parent_messages:
+        if msg["role"] == "user" or msg["role"] == "assistant":
+            messages.append(msg)
+    messages.append({"role": "user", "content": prompt})
+    # 子智能体单独启用一个大模型客户端，以免破坏主智能体的 Prefix Cache
+    sub_llm = OpenAILLM()
+    is_finished = False
+    for _ in range(max_subagent_rounds):
+        # LLM 调用失败重试机制
+        retry_num = 0
+        while retry_num <= max_retry_num:
+            response = sub_llm.invoke(messages, tools=subagent_tools_schema)
+            if response["finish_reason"] != "error":
+                break
+            retry_num += 1
+        messages.append({"role": "assistant", "content": response["content"]})
+        # 大模型调用失败
+        if response["finish_reason"] == "error":
+            return {"content": f"大模型调用已重试 {max_retry_num} 次，仍然失败，子智能体退出。\n失败原因 {response['content']}"}
+        # 子智能体完成任务，退出循环
+        elif response["finish_reason"] != "tool_calls":
+            is_finished = True
+            break
+        ui.subagent(response["content"])
+        tool_results = []
+        for tc in response["tool_calls"]:
+            result = tool_hander(tc[1], tc[2], None)
+            ui.subagent(f"工具调用：\n\n名称：{tc[1]}\n\n参数：{tc[2]}\n\n执行结果：\n{result}")
+            tool_results.append({"type": "tool_result", "tool_calls_id": tc[0], "content": result})
+        messages.append({"role": "user", "content": json.dumps(tool_results, ensure_ascii=False, default=str)})
+    # 无论子智能体是否完成任务，都需要对已经生成的内容进行总结，作为子智能体的输出
+    if is_finished:
+        messages.append({"role": "user", "content": "你已经完成了任务，请针对输入的问题，总结历史对话信息，回答内容要简洁有条理。"})
+    else:
+        messages[-1]["content"] += "由于最大循环次数的限制，你没有完成任务，请针对输入的问题，总结历史对话信息，回答内容要简洁有条理。"
+    response = sub_llm.invoke(messages)
+    return {
+        "content": f"子智能体循环达到最大限制 {max_subagent_rounds} 次，任务终止。\n 当前的输出结果是 {response['content']}" \
+            if not is_finished else response["content"],
+        "input_tokens": sub_llm.input_tokens,
+        "output_tokens": sub_llm.output_tokens,
+    }
+
+subagent_tools_schema = generate_tools_schema([run_bash, read_file, write_file, edit_file])
+subagent_llm_usage = {"input_tokens": 0, "output_tokens": 0}
+
+# 允许主智能体使用的工具集合
+agent_tools = [run_bash, read_file, write_file, edit_file, update_todo, load_skill, save_memory]
+if allow_subagent():
+    agent_tools.append(run_subagent)
+
+tools_schema = generate_tools_schema(agent_tools)

@@ -47,13 +47,19 @@ def main(
         "--permission_mode",
         help="权限模式（Default、Auto、Plan）",
     ),
+    allow_subagent: bool = typer.Option(
+        True,
+        "--allow_subagent",
+        help="是否允许启动子智能体（默认允许）",
+    ),    
 ) -> None:
     if ctx.invoked_subcommand is not None:
         return
-    # 将命令行传入的参数设置为环境变量
+    # 将命令行传入的参数设置为环境变量，以便全局可用
     if project_root:
         os.environ["PROJECT_ROOT"] = project_root
     os.environ["PERMISSION_MODE"] = permission_mode
+    os.environ["ALLOW_SUBAGENT"] = "true" if allow_subagent else "false"
 
     from src.llm import OpenAILLM
     from src.agent import agent_loop, auto_compact, prompt_builder
@@ -105,7 +111,7 @@ def main(
                 show_status()
                 continue
             if items[0] == "/prompt":
-                ui.print(system_prompt)
+                ui.output(system_prompt)
                 continue
             # 显示最近10条消息
             if items[0] == "/messages":

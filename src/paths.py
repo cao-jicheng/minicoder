@@ -33,3 +33,7 @@ def get_memory_dir() -> Path:
 def get_permission_mode() -> str:
     env = os.getenv("PERMISSION_MODE")
     return env if env in ["Default", "Auto", "Plan"] else "Default"
+
+def allow_subagent() -> bool:
+    allow = os.getenv("ALLOW_SUBAGENT")
+    return True if allow == "true" else False

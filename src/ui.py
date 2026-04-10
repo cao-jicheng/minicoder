@@ -54,24 +54,24 @@ class AgentUI():
     def error(self, data: str):
         self.console.print(f"\n[red][{time_now()}]❌\x20严重错误:\n\r{data}[/red]")
     
-    def print(self, data: str):
+    def output(self, data: str):
         md_data = Markdown(data)
         self.console.print(f"\n[white][{time_now()}]🖨️\x20\x20模型输出:[/white]")
         self.console.print(md_data, style="white")
-    
-    def think(self, data: str):
-        self.console.print(f"\n[magenta][{time_now()}]🧠\x20思考过程:\n\r{data}[/magenta]")
+
+    def result(self, data: str):
+        md_data = Markdown(data)
+        self.console.print(f"\n[magenta][{time_now()}]🎉\x20最终结果:[/magenta]")
+        self.console.print(md_data, style="magenta")
 
     def tool(self, data: str):
         self.console.print(f"\n[dark_goldenrod][{time_now()}]🛠️\x20\x20工具调用:\n\r{data}[/dark_goldenrod]")
 
-    def result(self, data: str):
-        md_data = Markdown(data)
-        self.console.print(f"\n[cadet_blue][{time_now()}]🎉\x20最终结果:[/cadet_blue]")
-        self.console.print(md_data, style="cadet_blue")
-
     def update(self, data: str):
-        self.console.print(f"\n[blue][{time_now()}]📝\x20状态更新:\n\r{data}[/blue]") 
+        self.console.print(f"\n[blue][{time_now()}]📝\x20状态更新:\n\r{data}[/blue]")
+
+    def subagent(self, data: str):
+        self.console.print(f"\n[cadet_blue][{time_now()}]👽\x20子智能体:\n\r{data}[/cadet_blue]")
     
     def input(self) -> str:
         response = Prompt.ask(f"\n[cyan]{get_permission_mode()}模式[/cyan]")
@@ -109,7 +109,7 @@ class AgentUI():
         cached_tokens = self.llm.cache_hit_tokens + self.llm.cache_miss_tokens
         cached_ratio = (100 * cached_tokens / self.llm.input_tokens) if self.llm.input_tokens else 0.0
         cache_hit_ratio = (100 * self.llm.cache_hit_tokens / cached_tokens) if cached_tokens else 0.0
-        self.console.print(f"\n[cadet_blue][Tokens 使用量统计]\n输入 {_convert_num(self.llm.input_tokens)} tokens, "
+        self.console.print(f"\n[cadet_blue][主智能体 tokens 使用量统计]\n输入 {_convert_num(self.llm.input_tokens)} tokens, "
             f"输出 {_convert_num(self.llm.output_tokens)} tokens, 总共 {_convert_num(total_tokens)} tokens,\n"
             f"输入缓存 {_convert_num(cached_tokens)} tokens, 缓存率为 {cached_ratio:.2f} %, \n"
             f"缓存命中 {_convert_num(self.llm.cache_hit_tokens)} tokens, 未命中 {_convert_num(self.llm.cache_miss_tokens)} tokens, "

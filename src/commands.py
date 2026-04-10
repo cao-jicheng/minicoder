@@ -5,8 +5,9 @@ from typing import List
 from rich import box
 from rich.table import Table
 from src.config import ui, slash_commands
-from src.tools import tools_schema, skill_loader, memory_manager
 from src.paths import get_project_root, get_permission_mode
+from src.tools import (tools_schema, skill_loader, memory_manager,
+    subagent_llm_usage)
 
 def parse_slash_command(command: str) -> List:
     items = command.split()
@@ -28,9 +29,22 @@ def show_status():
     status = (
         f"工具数量：{len(tools_schema)}\n"
         f"技能数量：{len(skill_loader.skills.keys())}\n"
-        f"记忆数量：{len(memory_manager.memories.keys())}"
+        f"记忆数量：{len(memory_manager.memories.keys())}\n"
     )
     ui.console.print(status)
+
+    def _convert_num(num: int) -> str:
+        if num > 1e6:
+            return f"{num / 1e6}M"
+        elif num > 1e3:
+            return f"{num / 1e3}K"
+        else:
+            return str(num)
+
+    ui.console.print(f"\n[cadet_blue][子智能体 tokens 使用量统计]\n"
+        f"输入 {_convert_num(subagent_llm_usage['input_tokens'])} tokens, "
+        f"输出 {_convert_num(subagent_llm_usage['output_tokens'])} tokens [/cadet_blue]\n"
+    )
     ui.show_usage()
 
 def show_messages(messages: List):

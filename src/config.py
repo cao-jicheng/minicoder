@@ -40,7 +40,9 @@ max_output_length = 50000
 max_context_tokens = 100*1000
 # 大模型API调用最多重试次数
 max_retry_num = 2
-# 智能体最大循环次数
-max_rounds_elapsed = 50
+# 主智能体最大循环次数
+max_agent_rounds = 50
+# 子智能体最大循环次数
+max_subagent_rounds = 20
 # 记忆条目的最大保存数量
 max_memory_entities = 200

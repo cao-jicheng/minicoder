@@ -11,9 +11,9 @@ from src.llm import OpenAILLM
 from src.paths import (get_project_root, get_transcripts_dir, 
     get_skills_dir, get_memory_dir)
 from src.config import (ui, max_retry_num, max_context_tokens,
-    max_rounds_elapsed)
+    max_agent_rounds)
 from src.tools import (tools_schema, tool_hander, todo_manager, 
-    skill_loader, memory_manager)
+    skill_loader, memory_manager, subagent_llm_usage)
 
 def auto_compact(llm: OpenAILLM, messages: List) -> List:
     keep_messages = []
@@ -142,8 +142,8 @@ def agent_loop(llm: OpenAILLM, messages: List):
     while True:
         rounds_elapsed += 1
         # 达到最大循环次数
-        if rounds_elapsed > max_rounds_elapsed:
-            ui.warning(f"智能体循环达到最大限制 {max_rounds_elapsed} 次，任务终止。")
+        if rounds_elapsed > max_agent_rounds:
+            ui.warning(f"智能体循环达到最大限制 {max_agent_rounds} 次，任务终止。")
             return
         # LLM 调用失败重试机制
         retry_num = 0
@@ -155,19 +155,24 @@ def agent_loop(llm: OpenAILLM, messages: List):
         messages.append({"role": "assistant", "content": response["content"]})
         # 大模型重试仍然失败，大多数时候是网络原因引起的 timeout
         if response["finish_reason"] == "error":
-            ui.error(f"大模型调用已重试 {max_retry_num} 次，仍然失败，任务终止。\n失败原因：{response['content']}")
+            ui.error(f"大模型调用已重试 {max_retry_num} 次，仍然失败，任务终止。\n失败原因 {response['content']}")
             return
         # 大模型直接输出文本，不再调用工具，任务完成
         elif response["finish_reason"] != "tool_calls":
             ui.update(f"经过 {rounds_elapsed} 轮循环，全部任务已经完成")
             return
         # 显示大模型的回答内容
-        ui.print(response["content"])
+        ui.output(response["content"])
         tool_results = []
         used_todo = False
         for tc in response["tool_calls"]:
             ui.tool(f"名称：{tc[1]}\n\n参数：{tc[2]}")
-            result = tool_hander(tc[1], tc[2])
+            result = tool_hander(tc[1], tc[2], messages)
+            # 如果调用的是子智能体，并且输出格式是字典，则需要单独处理输出
+            if tc[1] == "run_subagent" and isinstance(result, dict):
+                subagent_llm_usage["input_tokens"] += result.get("input_tokens", 0)
+                subagent_llm_usage["output_tokens"] += result.get("output_tokens", 0)
+                result = result["content"]
             ui.console.print(f"\n\n执行结果：\n{result}")
             tool_results.append({"type": "tool_result", "tool_calls_id": tc[0], "content": result})
             if tc[1] == "update_todo":
