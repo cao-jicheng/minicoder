@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from src.ui import AgentUI
 
-current_version = "0.1.0"
+current_version = "0.1.2"
 
 dangerous_commands = [
     "rm -rf",
@@ -14,8 +14,8 @@ dangerous_commands = [
     "passwd",
     "crontab",
     "wget",
-    ":(){ :|:& };:",
-    "/dev",
+    "shutdown",
+    "poweroff",
 ]
 
 slash_commands = {
@@ -23,10 +23,12 @@ slash_commands = {
     "/init": "初始化项目，生成 CLAUDE.md 文件",
     "/status": "显示当前会话的状态信息",
     "/prompt": "显示系统提示词",
-    "/model": "显示或更换大模型（目前只能从 Siliconflow 系列模型中选择）",
+    "/messages": "显示最近10条会话消息",
+    "/model": "显示或更换大语言模型（目前只能从 Siliconflow 系列模型中选择）",
     "/permission": "显示或设置权限模式（Default、Auto、Plan）",
     "/tools": "列出已安装的工具",
     "/skills": "列出已安装的技能",
+    "/memory": "列出已保存的记忆",
     "/compact": "手动执行上下文压缩",
 }
 
@@ -40,4 +42,5 @@ max_context_tokens = 100*1000
 max_retry_num = 2
 # 智能体最大循环次数
 max_rounds_elapsed = 50
-
+# 记忆条目的最大保存数量
+max_memory_entities = 200

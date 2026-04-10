@@ -74,7 +74,7 @@ class AgentUI():
         self.console.print(f"\n[blue][{time_now()}]📝\x20状态更新:\n\r{data}[/blue]") 
     
     def input(self) -> str:
-        response = Prompt.ask(f"\n[{get_permission_mode()} 模式]")
+        response = Prompt.ask(f"\n[cyan]{get_permission_mode()}模式[/cyan]")
         self.console.print(f"\n[green][{time_now()}]🎙️\x20\x20用户输入:\n\r{response}[/green]")
         return response.strip()
 

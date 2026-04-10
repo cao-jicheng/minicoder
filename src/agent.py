@@ -12,7 +12,8 @@ from src.paths import (get_project_root, get_transcripts_dir,
     get_skills_dir, get_memory_dir)
 from src.config import (ui, max_retry_num, max_context_tokens,
     max_rounds_elapsed)
-from src.tools import todo, tools_schema, tool_hander, get_skills_meta
+from src.tools import (tools_schema, tool_hander, todo_manager, 
+    skill_loader, memory_manager)
 
 def auto_compact(llm: OpenAILLM, messages: List) -> List:
     keep_messages = []
@@ -28,14 +29,14 @@ def auto_compact(llm: OpenAILLM, messages: List) -> List:
     with open(path, "w") as f:
         for msg in messages:
             f.write(json.dumps(msg, ensure_ascii=False, default=str) + "\n")
-    messages.append({"role": "user", "content": "请总结以上对话, 回答内容限制在 2000 字以内"})
+    messages.append({"role": "user", "content": "请总结以上对话，回答内容限制在 2000 字以内"})
     response = llm.invoke(messages, max_tokens=2000)
     # 上下文压缩失败，回退会话列表
     if response["finish_reason"] == "error":
-        ui.warning(f"上下文压缩失败, 由于{response['content']}")
+        ui.warning(f"上下文压缩失败，由于{response['content']}")
         return messages[:-1]
     keep_messages.append({"role": "user", "content": f"[Compressed. Transcript: {path}]\n{response['content']}"})
-    ui.update(f"已完成上下文压缩: {len(messages) - 1} messages -> {len(keep_messages)} messages")
+    ui.update(f"已完成上下文压缩：{len(messages) - 1} 条消息 -> {len(keep_messages)} 条消息")
     return keep_messages
 
 class SystemPromptBuilder:
@@ -51,48 +52,30 @@ class SystemPromptBuilder:
             f"在提出修改建议之前，先理解已有代码。\n注意不要引入命令注入、XSS、SQL 注入以及其他 OWASP Top 10 类安全漏洞。"
             f"如果你发现自己写出了不安全的代码，应立即修复。\n不要额外添加功能、重构代码，或做超出要求范围的优化。不要给未修改的代码"
             f"补充注释或类型注解。不要为本不可能发生的场景添加错误处理、兜底逻辑或额外校验，要相信内部代码和框架自身的保证。\n"
-            f"除非为了完成任务绝对的必要，否则不要创建新文件，应该优先修改已有文件，避免文件膨胀，也能更有效地复用已有工作。\n"
+            f"除非为了完成任务绝对的必要，否则不要创建新文件，应该优先修改已有文件。这样可以避免文件膨胀，也能更好地复用已有工作。\n"
             f"如果用户拒绝了你调用的某个工具，不要再次发起完全相同的工具调用。相反，你应该思考用户拒绝的原因，并调整你的处理方式。" 
         )
     
     def _build_tools(self) -> str:
-        lines = ["# 可供使用的工具（tools）"]
+        lines = []
         for ts in tools_schema:
             params = [f"{k}: {v['type']}" for k, v in ts["parameters"]["properties"].items()]
             lines.append(f"- {ts['function']['name']}({', '.join(params)})：{ts['function']['description']}")
-        lines.append("\n注意：选择 run_bash 工具不是第一优先级，应该先尝试其他专用工具，无法满足要求时才使用 run_bash 工具兜底。")
-        return "\n".join(lines)
+        return "# 可供使用的工具（tools）\n\n" + "\n".join(lines)
 
     def _build_skills(self) -> str:
-        skills = get_skills_meta()
+        skills = skill_loader.skills
         if not skills:
             return ""
-        skills = [f"- {s[0]}：{s[1]}" for s in skills]
-        return "# 可供使用的技能（skills）\n" + "\n".join(skills)
+        skills_meta = [f"- {n}：{s['meta'].get('description', '')}" for n, s in skills.items()]
+        return "# 可供使用的技能（skills）\n\n" + "\n".join(skills_meta)
 
     def _build_memory(self) -> str:
-        memories = []
-        for md_file in sorted(get_memory_dir().glob("*.md")):
-            if md_file.name == "MEMORY.md":
-                continue
-            text = md_file.read_text()
-            match = re.match(r"^---\s*\n(.*?)\n---\s*\n(.*)", text, re.DOTALL)
-            if not match:
-                continue
-            header, body = match.group(1), match.group(2).strip()
-            meta = {}
-            for line in header.splitlines():
-                separator = '：' if '：' in line else ':'
-                if separator in line:
-                    k, _, v = line.partition(separator)
-                    meta[k.strip()] = v.strip()
-            name = meta.get("name", md_file.stem)
-            mem_type = meta.get("type", "project")
-            desc = meta.get("description", "")
-            memories.append(f"[{mem_type}] {name}：{desc}\n{body}")
+        memories = memory_manager.memories
         if not memories:
             return ""
-        return "# 持久化的记忆（memory）\n\n" + "\n\n".join(memories)
+        memory_meta = [f"[{v['type']}] {k}：{v['description']}\n{v['content']}" for k, v in memories.items()]
+        return "# 持久化的记忆（memory）\n\n" + "\n\n".join(memory_meta)
 
     def _build_claude(self) -> str:
         sources = []
@@ -100,9 +83,9 @@ class SystemPromptBuilder:
         user_claude = Path.home() / ".minicoder" / "CLAUDE.md"
         if user_claude.exists():
             sources.append(("用户级 (~/.minicoder/CLAUDE.md)", user_claude.read_text()))
-        # 项目级 CLAUDE.md
+        # 项目级 CLAUDE.md（如果和用户级 CLAUDE.md 相同，则跳过）
         project_claude = get_project_root() / "CLAUDE.md"
-        if project_claude.exists():
+        if project_claude.exists() and project_claude != user_claude:
             sources.append(("项目级 (CLAUDE.md)", project_claude.read_text()))
         # 子目录级 CLAUDE.md
         cwd = Path.cwd()
@@ -112,11 +95,11 @@ class SystemPromptBuilder:
                 sources.append((f"子目录级 ({cwd.name}/CLAUDE.md)", subdir_claude.read_text()))
         if not sources:
             return ""
-        parts = ["# CLAUDE.md 中包含的指令"]
+        parts = []
         for label, content in sources:
             parts.append(f"## 来自于{label}")
             parts.append(content.strip())
-        return "\n\n".join(parts)
+        return "# CLAUDE.md 中包含的指令\n\n" + "\n\n".join(parts)
 
     def _build_todo(self) -> str:
         return (
@@ -125,7 +108,7 @@ class SystemPromptBuilder:
             f"分解的步骤不要超过 10 个，每个步骤是一个字典格式，包含 content、status、activeForm 三个键。"
             f"content 是任务描述，应该简洁概要。activeForm是你现在正在做的任务。status 是执行状态，"
             f"可以取值 pending、in_progress、completed 三者之一。"
-            f"你需要在每一轮执行完成后，调用 update_todo 工具来更新 TODO 任务步骤列表。"
+            f"你需要在每一轮执行完成后，调用 update_todo 工具来更新步骤列表。"
         )
 
     def _build_environment(self) -> str:
@@ -135,7 +118,7 @@ class SystemPromptBuilder:
             f"大语言模型：{ui.llm.get_provider()}\n"
             f"工作平台：{os.uname().sysname}\n"
         )
-        return "# 环境信息（environment）\n" + lines
+        return "# 环境信息（environment）\n\n" + lines
 
     def build(self) -> str:
         sections = [self._build_core(), self._build_tools()]
@@ -190,8 +173,8 @@ def agent_loop(llm: OpenAILLM, messages: List):
             if tc[1] == "update_todo":
                 used_todo = True
         if not used_todo:
-            todo.rounds_since_update += 1
-            reminder = todo.reminder()
+            todo_manager.rounds_since_update += 1
+            reminder = todo_manager.reminder()
             # 经过3轮还没有更新 todo 任务步骤，则提醒大模型
             if reminder:
                 tool_results.append({"type": "text", "text": reminder})

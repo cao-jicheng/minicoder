@@ -14,24 +14,6 @@ app = typer.Typer(
     invoke_without_command=True,
 )
 
-mcp_app = typer.Typer(name="mcp", help="管理 MPC 服务器")
-plugin_app = typer.Typer(name="plugin", help="管理插件")
-
-app.add_typer(mcp_app)
-app.add_typer(plugin_app)
-
-@mcp_app.command("list")
-def mcp_list() -> None:
-    """List configured MCP servers."""
-    print("this is mcp list")
-
-@plugin_app.command("install")
-def plugin_install(
-    source: str = typer.Argument(..., help="Plugin source (path or URL)"),
-) -> None:
-    """Install a plugin from a source path."""
-    pass
-
 @app.callback(invoke_without_command=True)
 def main(
     ctx: typer.Context,
@@ -43,12 +25,12 @@ def main(
     model: str = typer.Option(
         None,
         "--model",
-        help="大语言模型的名称",
+        help="大语言模型的名称（默认 Pro/MiniMaxAI/MiniMax-M2.5）",
     ),
     base_url: str = typer.Option(
         None,
         "--base-url",
-        help="大语言模型 API 访问地址",
+        help="大语言模型 API 访问地址（默认 https://api.siliconflow.cn/v1）",
     ),
     api_key: str = typer.Option(
         None,
@@ -58,7 +40,7 @@ def main(
     project_root: str = typer.Option(
         None,
         "--project-root",
-        help="项目工作区根目录（默认~/.minicoder）",
+        help="项目工作区根目录（默认 ~/.minicoder）",
     ),
     permission_mode: str = typer.Option(
         "Auto",
@@ -76,7 +58,8 @@ def main(
     from src.llm import OpenAILLM
     from src.agent import agent_loop, auto_compact, prompt_builder
     from src.commands import (parse_slash_command, show_help, 
-        set_permission, list_tools, list_skills, show_status, set_model)
+        show_status, show_messages, set_permission, set_model,
+        list_tools, list_skills, list_memory)
 
     llm = OpenAILLM(model=model, base_url=base_url, api_key=api_key)
     ui.set_llm(llm)
@@ -115,11 +98,18 @@ def main(
             if items[0] == "/skills":
                 list_skills()
                 continue
+            if items[0] == "/memory":
+                list_memory()
+                continue
             if items[0] == "/status":
                 show_status()
                 continue
             if items[0] == "/prompt":
                 ui.print(system_prompt)
+                continue
+            # 显示最近10条消息
+            if items[0] == "/messages":
+                show_messages(context_history[-10:])
                 continue
             # 手动触发上下文压缩
             if query == "/compact" and context_history:
