@@ -10,9 +10,9 @@ from dataclasses import dataclass
 from json_repair import repair_json
 from typing import List, Dict, Callable, Any
 from src.config import (ui, dangerous_commands, max_output_length, 
-    max_memory_entities, max_subagent_rounds, max_retry_num, glob_ignored)
+    max_memory_entities, max_subagent_rounds, glob_ignored)
 from src.paths import (get_project_root, get_skills_dir, get_memory_dir,
-    get_permission_mode, allow_subagent)
+    get_persistence_dir, get_permission_mode, allow_subagent)
 
 @dataclass
 class TodoItem:
@@ -211,6 +211,20 @@ def tool_hander(name, args, messages) -> Any:
     else:
         return f"工具 {name} 未注册"
 
+def persist_large_output(tool_calls_id: str, output: str) -> str:
+    if len(output) < max_output_length:
+        return output
+    stored_path = get_persistence_dir() / f"{tool_calls_id}.txt"
+    stored_path.write_text(output)
+    preview = output[:2000]
+    return (
+        f"<persisted-output>\n"
+        f"原始输出尺寸过大，完整版本已保存到：{stored_path}\n"
+        f"预览版本：\n"
+        f"{preview}\n"
+        f"</persisted-output>"
+    )
+
 def parse_docstring(doc: str) -> Dict:
     # 判断输入的 docstring 是否为空
     if not doc:
@@ -284,11 +298,10 @@ def run_bash(command: str) -> str:
     try:
         r = subprocess.run(command, shell=True, cwd=Path.cwd(), capture_output=True, text=True, timeout=60)
         out = (r.stdout + r.stderr).strip()
+        return out or "命令无输出内容"
     except subprocess.TimeoutExpired:
         return "执行命令超时（60秒）"
-    if len(out) > max_output_length:
-        out = out[:max_output_length] + " [内容超长已截断...]"
-    return out or "命令无输出内容"
+    
 
 @register(require_approval=False)
 def read_file(file: str) -> str:
@@ -304,10 +317,7 @@ def read_file(file: str) -> str:
     if not fp.exists():
         return f"文件 {fp} 不存在"
     lines = fp.read_text().splitlines()
-    out = "\n".join(lines) if lines else "文件内容为空"
-    if len(out) > max_output_length:
-        out = out[:max_output_length] + " [内容超长已截断...]"
-    return out
+    return "\n".join(lines) if lines else "文件内容为空"
 
 @register(require_approval=True)
 def write_file(file: str, content: str) -> str:
@@ -507,17 +517,11 @@ def run_subagent(prompt: str, parent_messages: List) -> Dict:
     sub_llm = OpenAILLM()
     is_finished = False
     for _ in range(max_subagent_rounds):
-        # LLM 调用失败重试机制
-        retry_num = 0
-        while retry_num <= max_retry_num:
-            response = sub_llm.invoke(messages, tools=subagent_tools_schema)
-            if response["finish_reason"] != "error":
-                break
-            retry_num += 1
+        response = sub_llm.invoke(messages, tools=subagent_tools_schema)
         messages.append({"role": "assistant", "content": response["content"]})
         # 大模型调用失败（一般是由网络原因引起的 timeout），返回到父智能体
         if response["finish_reason"] == "error":
-            return {"content": f"大模型调用已重试 {max_retry_num} 次，仍然失败，子智能体退出。\n失败原因 {response['content']}"}
+            return {"content": response["content"]}
         # 子智能体完成任务，退出循环，随后对历史消息进行总结输出
         elif response["finish_reason"] != "tool_calls":
             is_finished = True
@@ -526,6 +530,8 @@ def run_subagent(prompt: str, parent_messages: List) -> Dict:
         tool_results = []
         for tc in response["tool_calls"]:
             result = tool_hander(tc[1], tc[2], None)
+            # 大尺寸输出的完整版本保存到磁盘上，只返回预览版本和引用链接
+            result = persist_large_output(tc[0], result)
             ui.subagent(f"工具调用：\n\n名称：{tc[1]}\n\n参数：{tc[2]}\n\n执行结果：\n{result}")
             tool_results.append({"type": "tool_result", "tool_calls_id": tc[0], "content": result})
         messages.append({"role": "user", "content": json.dumps(tool_results, ensure_ascii=False, default=str)})

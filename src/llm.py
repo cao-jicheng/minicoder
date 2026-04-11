@@ -1,8 +1,16 @@
 import os
-from openai import OpenAI
+import time
+import random
 from dotenv import load_dotenv
+from openai import OpenAI, OpenAIError
 from typing import List, Dict, Optional
 from rich.status import Status
+
+def backoff_delay(attempt: int) -> float:
+    """带抖动的指数级回退延迟算法：base * 2^attempt + random(0, 1)"""
+    delay = min(1.0 * (2 ** attempt), 30.0)
+    jitter = random.uniform(0, 1)
+    return delay + jitter
 
 class OpenAILLM:
     def __init__(
@@ -51,32 +59,47 @@ class OpenAILLM:
         self.model = model_name
         self.clear_usage()
 
-    def invoke(self, prompts: str|List, **kwargs) -> Dict:
+    def invoke(self, prompts: str|List, max_retry: int=2, **kwargs) -> Dict:
         messages = [{"role": "user", "content": prompts}] if isinstance(prompts, str) else prompts
-        try:
-            print() # 空一行，便于终端美观显示
-            with Status(status=f"正在调用 {self.get_provider()} ...") as status:
-                status.start()
-                response = self.client.chat.completions.create(
-                    model=self.model,
-                    messages=messages,
-                    **kwargs,
-                )
-            self.input_tokens += int(response.usage.prompt_tokens)
-            self.output_tokens += int(response.usage.completion_tokens)
-            self.cache_hit_tokens += int(response.usage.prompt_cache_hit_tokens)
-            self.cache_miss_tokens += int(response.usage.prompt_cache_miss_tokens)
-            tool_calls = []
-            if response.choices[0].finish_reason == "tool_calls":
-                tool_calls = [(t.id, t.function.name, t.function.arguments) for t in response.choices[0].message.tool_calls]
+        retry_num = 0
+        error_reason = ""
+        generate_ok = False
+        while retry_num <= max_retry:
+            # 延迟后重试，延迟时间随重试次数指数级增长（最长不超过30秒）
+            time.sleep(backoff_delay(retry_num))
+            info = f"第 {retry_num} 次重试" if retry_num > 0 else "正在调用"
+            try:
+                print() # 空一行，便于终端美观显示
+                with Status(status=f"{info} {self.get_provider()} ...") as status:
+                    status.start()
+                    response = self.client.chat.completions.create(
+                        model=self.model,
+                        messages=messages,
+                        **kwargs,
+                    )
+                generate_ok = True
+            except Exception as e:
+                error_reason = str(e)
+                retry_num += 1
+            if generate_ok:
+                break
+        # 多次重试后仍然失败
+        if not generate_ok:
             return {
-                "content": response.choices[0].message.content,
-                "finish_reason": response.choices[0].finish_reason, # 可选取值有：stop、eos、length、tool_calls
-                "tool_calls": tool_calls,
-                "context_tokens": int(response.usage.prompt_tokens) + int(response.usage.completion_tokens)
-            }
-        except Exception as e:
-            return {
-                "content": f"大模型调用失败 {e}",
+                "content": f"大模型调用已重试 {max_retry} 次，仍然失败，原因是 {error_reason}",
                 "finish_reason": "error",
             }
+        # 累计本次调用的 token 使用量          
+        self.input_tokens += int(response.usage.prompt_tokens)
+        self.output_tokens += int(response.usage.completion_tokens)
+        self.cache_hit_tokens += int(response.usage.prompt_cache_hit_tokens)
+        self.cache_miss_tokens += int(response.usage.prompt_cache_miss_tokens)
+        tool_calls = []
+        if response.choices[0].finish_reason == "tool_calls":
+            tool_calls = [(t.id, t.function.name, t.function.arguments) for t in response.choices[0].message.tool_calls]
+        return {
+            "content": response.choices[0].message.content,
+            "finish_reason": response.choices[0].finish_reason, # 可选取值有：stop、eos、length、tool_calls
+            "tool_calls": tool_calls,
+            "context_tokens": int(response.usage.prompt_tokens) + int(response.usage.completion_tokens)
+        }

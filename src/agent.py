@@ -7,12 +7,12 @@ import time
 import datetime
 from typing import List
 from pathlib import Path
+from src.config import ui, max_context_tokens, max_agent_rounds
 from src.paths import (get_project_root, get_transcripts_dir, 
     get_skills_dir, get_memory_dir)
-from src.config import (ui, max_retry_num, max_context_tokens,
-    max_agent_rounds)
 from src.tools import (tools_schema, tool_hander, todo_manager, 
-    skill_loader, memory_manager, subagent_llm_usage)
+    skill_loader, memory_manager, subagent_llm_usage,
+    persist_large_output)
 
 def auto_compact(messages: List) -> List:
     keep_messages = []
@@ -28,7 +28,16 @@ def auto_compact(messages: List) -> List:
     with open(path, "w") as f:
         for msg in messages:
             f.write(json.dumps(msg, ensure_ascii=False, default=str) + "\n")
-    messages.append({"role": "user", "content": "请总结以上对话，回答内容限制在 2000 字以内"})
+    compact_prompt = (
+        "请总结以上对话内容，并保留以下信息：\n"
+        "1、任务概述：设定的任务目标，完成的验收标准，执行的限制条件\n"
+        "2、当前状态：已完成的工作，阅读或修改过的文件，输出了哪些产物\n"
+        "3、关键的发现和决策：出现过哪些错误，如何纠正恢复，成功的经验\n"
+        "4、下一步：后续的行动项，涉及的阻碍因素，优先级顺序\n"
+        "5、必须保留的背景信息：用户偏好信息，领域细节特点，明确的约束条件\n"
+        "回答内容需要简洁但必须准确，不要捏造内容，不要歪曲事实，限制在 3000 字以内。"
+    )
+    messages.append({"role": "user", "content": compact_prompt})
     response = ui.llm.invoke(messages, max_tokens=2000)
     # 上下文压缩失败，回退会话列表
     if response["finish_reason"] == "error":
@@ -146,17 +155,11 @@ def agent_loop(messages: List):
         if rounds_elapsed > max_agent_rounds:
             ui.warning(f"智能体循环达到最大限制 {max_agent_rounds} 次，任务终止。")
             return
-        # LLM 调用失败重试机制
-        retry_num = 0
-        while retry_num <= max_retry_num:
-            response = ui.llm.invoke(messages, tools=tools_schema)
-            if response["finish_reason"] != "error":
-                break
-            retry_num += 1
+        response = ui.llm.invoke(messages, tools=tools_schema)
         messages.append({"role": "assistant", "content": response["content"]})
-        # 大模型重试仍然失败，大多数时候是网络原因引起的 timeout
+        # 大模型调用失败（一般是由网络原因引起的 timeout）
         if response["finish_reason"] == "error":
-            ui.error(f"大模型调用已重试 {max_retry_num} 次，仍然失败，任务终止。\n失败原因 {response['content']}")
+            ui.error(f"{response['content']}\n\n任务终止。")
             return
         # 大模型直接输出文本，不再调用工具，任务完成
         elif response["finish_reason"] != "tool_calls":
@@ -174,6 +177,8 @@ def agent_loop(messages: List):
                 subagent_llm_usage["input_tokens"] += result.get("input_tokens", 0)
                 subagent_llm_usage["output_tokens"] += result.get("output_tokens", 0)
                 result = result["content"]
+            # 大尺寸输出的完整版本保存到磁盘上，只返回预览版本和引用链接
+            result = persist_large_output(tc[0], result)
             ui.console.print(f"\n\n执行结果：\n{result}")
             tool_results.append({"type": "tool_result", "tool_calls_id": tc[0], "content": result})
             if tc[1] == "update_todo":

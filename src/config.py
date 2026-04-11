@@ -50,11 +50,9 @@ slash_commands = {
 ui = AgentUI(record=False, version=current_version)
 
 # 工具输出结果的最大字符长度
-max_output_length = 50000
+max_output_length = 30000
 # 大模型上下文窗口的最大tokens数量
 max_context_tokens = 100*1000
-# 大模型API调用最多重试次数
-max_retry_num = 2
 # 主智能体最大循环次数
 max_agent_rounds = 50
 # 子智能体最大循环次数

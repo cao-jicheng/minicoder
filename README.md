@@ -39,7 +39,7 @@ uv run minicoder
 退出会话界面后，在你的项目根目录的 .trajectory 文件夹（默认是 ~/.minicoder/.trajectory）可查看类似 `record_xxxxxxxx_yyyyyy.html` 的轨迹文件，
 它记录了你在会话界面和编程助手交互的每一次操作。轨迹文件中 “xxxxxxxx” 表示保存时的日期（例如 20260411），“yyyyyy” 表示保存时的时间（例如 182512）。
 
-### 4、命令行参数
+### 5、命令行参数
 
 输入`uv run minicoder --help` 查看 minicoder 在启动时，可以设置哪些命令行参数。
 
