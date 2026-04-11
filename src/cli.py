@@ -23,14 +23,14 @@ def main(
         help="为当前会话取一个用于显示的名称",
     ),
     model: str = typer.Option(
-        None,
+        "Pro/MiniMaxAI/MiniMax-M2.5",
         "--model",
-        help="大语言模型的名称（默认 Pro/MiniMaxAI/MiniMax-M2.5）",
+        help="大语言模型的名称",
     ),
     base_url: str = typer.Option(
-        None,
+        "https://api.siliconflow.cn/v1",
         "--base-url",
-        help="大语言模型 API 访问地址（默认 https://api.siliconflow.cn/v1）",
+        help="大语言模型 API 访问地址",
     ),
     api_key: str = typer.Option(
         None,
@@ -50,8 +50,8 @@ def main(
     allow_subagent: bool = typer.Option(
         True,
         "--allow_subagent",
-        help="是否允许启动子智能体（默认允许）",
-    ),    
+        help="是否允许启动子智能体",
+    ),
 ) -> None:
     if ctx.invoked_subcommand is not None:
         return
