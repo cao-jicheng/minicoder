@@ -7,7 +7,6 @@ import time
 import datetime
 from typing import List
 from pathlib import Path
-from src.llm import OpenAILLM
 from src.paths import (get_project_root, get_transcripts_dir, 
     get_skills_dir, get_memory_dir)
 from src.config import (ui, max_retry_num, max_context_tokens,
@@ -15,7 +14,7 @@ from src.config import (ui, max_retry_num, max_context_tokens,
 from src.tools import (tools_schema, tool_hander, todo_manager, 
     skill_loader, memory_manager, subagent_llm_usage)
 
-def auto_compact(llm: OpenAILLM, messages: List) -> List:
+def auto_compact(messages: List) -> List:
     keep_messages = []
     for msg in messages:
         # 保留系统提示词
@@ -30,7 +29,7 @@ def auto_compact(llm: OpenAILLM, messages: List) -> List:
         for msg in messages:
             f.write(json.dumps(msg, ensure_ascii=False, default=str) + "\n")
     messages.append({"role": "user", "content": "请总结以上对话，回答内容限制在 2000 字以内"})
-    response = llm.invoke(messages, max_tokens=2000)
+    response = ui.llm.invoke(messages, max_tokens=2000)
     # 上下文压缩失败，回退会话列表
     if response["finish_reason"] == "error":
         ui.warning(f"上下文压缩失败，由于{response['content']}")
@@ -46,14 +45,16 @@ class SystemPromptBuilder:
     def _build_core(self) -> str:
         return (
             f"你是 MiniCoder，Caojicheng 开发的个人命令行编程助手。你是一个交互式智能体，用来帮助用户完成软件工程相关任务。"
-            f"用户可能会要求你修复软件缺陷、添加新功能、重构代码、解释代码等。当你收到含糊或泛化的指令时，要结合这些软件工程任务"
-            f"以及当前工作目录来理解用户的意图。\n你工作的项目根目录是 {get_project_root()}，你的任何操作都不要超出这个目录，"
-            f"以免触发访问越界的错误。\n不要对你没有读过的代码提出修改建议，如果用户询问某个文件，或希望你修改某个文件，先把它读一遍，"
-            f"在提出修改建议之前，先理解已有代码。\n注意不要引入命令注入、XSS、SQL 注入以及其他 OWASP Top 10 类安全漏洞。"
-            f"如果你发现自己写出了不安全的代码，应立即修复。\n不要额外添加功能、重构代码，或做超出要求范围的优化。不要给未修改的代码"
-            f"补充注释或类型注解。不要为本不可能发生的场景添加错误处理、兜底逻辑或额外校验，要相信内部代码和框架自身的保证。\n"
+            f"用户可能会要求你修复软件缺陷、添加新功能、重构代码、解释代码等。当你收到含糊或过于泛化的指令时，要结合这些软件工程任务"
+            f"以及当前工作目录来理解用户的意图，如果仍然不清楚，可以调用 ask_user 工具要求用户澄清问题或补充背景信息。\n"
+            f"你工作的项目根目录是 {get_project_root()}，你的任何操作都不要超出这个目录，以免触发工具访问越界的错误。\n"
+            f"不要对你没有读过的代码提出修改建议，如果用户询问某个文件，或希望你修改某个文件，先把它读一遍。在修改代码前，先理解已有代码。\n"
+            f"注意不要在代码中引入命令注入、XSS、SQL注入以及其他 OWASP Top 10类安全漏洞。如果你发现自己写出了不安全的代码，应立即修复。\n"
+            f"不要额外添加功能、重构代码，或做超出要求范围的优化。不要给未修改的代码补充注释或类型注解。不要为本不可能发生的场景添加错误处理、"
+            f"兜底逻辑或额外校验，要相信内部代码和框架自身的保证。只有在系统边界处，例如用户输入或外部API，才需要做校验。\n"
             f"除非为了完成任务绝对的必要，否则不要创建新文件，应该优先修改已有文件。这样可以避免文件膨胀，也能更好地复用已有工作。\n"
-            f"如果用户拒绝了你调用的某个工具，不要再次发起完全相同的工具调用。相反，你应该思考用户拒绝的原因，并调整你的处理方式。" 
+            f"如果用户拒绝了你调用的某个工具，不要再次发起完全相同的工具调用。如果你的当前做法被阻塞，不要靠蛮力硬闯到结果。"
+            f"你应该思考用户拒绝的原因或被阻塞的原因，调整你的应对方法，必要时，调用 ask_user 工具向用户寻求帮助。\n" 
         )
     
     def _build_tools(self) -> str:
@@ -106,8 +107,8 @@ class SystemPromptBuilder:
             f"# TODO 任务步骤列表\n\n"
             f"如果用户要处理的是一个复杂的问题，你需要在执行前先将其分解为若干个解决步骤。"
             f"分解的步骤不要超过 10 个，每个步骤是一个字典格式，包含 content、status、activeForm 三个键。"
-            f"content 是任务描述，应该简洁概要。activeForm是你现在正在做的任务。status 是执行状态，"
-            f"可以取值 pending、in_progress、completed 三者之一。"
+            f"content 是每个步骤的任务描述，应该简洁概要。activeForm 是你现在正在做的事情，可以和 content 比较，"
+            f"识别是否存在偏差。status 是每个步骤的执行状态，可以取值 pending、in_progress、completed。"
             f"你需要在每一轮执行完成后，调用 update_todo 工具来更新步骤列表。"
         )
 
@@ -137,7 +138,7 @@ class SystemPromptBuilder:
 
 prompt_builder = SystemPromptBuilder()
 
-def agent_loop(llm: OpenAILLM, messages: List):
+def agent_loop(messages: List):
     rounds_elapsed = 0
     while True:
         rounds_elapsed += 1
@@ -148,7 +149,7 @@ def agent_loop(llm: OpenAILLM, messages: List):
         # LLM 调用失败重试机制
         retry_num = 0
         while retry_num <= max_retry_num:
-            response = llm.invoke(messages, tools=tools_schema)
+            response = ui.llm.invoke(messages, tools=tools_schema)
             if response["finish_reason"] != "error":
                 break
             retry_num += 1

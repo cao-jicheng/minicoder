@@ -18,6 +18,20 @@ dangerous_commands = [
     "poweroff",
 ]
 
+glob_ignored = {
+    ".git",
+    ".svn",
+    ".vscode",
+    ".DS_Store",
+    ".venv",
+    ".cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    "node_modules",
+    "site-packages",
+    "__pycache__",
+}
+
 slash_commands = {
     "/help": "显示帮助信息",
     "/init": "初始化项目，生成 CLAUDE.md 文件",
@@ -30,6 +44,7 @@ slash_commands = {
     "/skills": "列出已安装的技能",
     "/memory": "列出已保存的记忆",
     "/compact": "手动执行上下文压缩",
+    "/clear": "清空上下文中所有的消息",
 }
 
 ui = AgentUI(record=False, version=current_version)

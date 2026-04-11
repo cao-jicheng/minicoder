@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 import json
 import inspect
@@ -8,9 +9,8 @@ from pathlib import Path
 from dataclasses import dataclass
 from json_repair import repair_json
 from typing import List, Dict, Callable, Any
-from src.llm import OpenAILLM
 from src.config import (ui, dangerous_commands, max_output_length, 
-    max_memory_entities, max_subagent_rounds, max_retry_num)
+    max_memory_entities, max_subagent_rounds, max_retry_num, glob_ignored)
 from src.paths import (get_project_root, get_skills_dir, get_memory_dir,
     get_permission_mode, allow_subagent)
 
@@ -199,11 +199,9 @@ def tool_hander(name, args, messages) -> Any:
         (require_approval, func) = function_registry[name]
         if mode == "Plan" and require_approval:
             return f"Plan 模式只允许运行 Read-Only 工具"
-        can_run = True
         if mode == "Default" and require_approval:
-            can_run = (ui.confirm(f"是否允许运行 {name} 工具？") == True)
-        if not can_run:
-            return f"用户拒绝运行 {name} 工具"
+            if not ui.confirm(f"是否允许运行 {name} 工具？"):
+                return f"用户拒绝运行 {name} 工具"
         if name == "run_subagent":
             try:
                 return func(args.get("prompt"), messages)
@@ -272,8 +270,8 @@ def safe_path(path: str) -> Path:
 
 @register(require_approval=True)
 def run_bash(command: str) -> str:
-    """运行shell命令，遇到危险指令，将自动终止运行。
-    选择 run_bash 工具不是第一优先级，应该先尝试其他专用工具，无法满足要求时才使用 run_bash 工具来兜底。
+    """运行shell命令，遇到危险指令，工具将自动终止运行。
+    注意：选择 run_bash 工具不是第一优先级，应该先尝试其他专用工具，无法满足要求时才使用 run_bash 工具来兜底。
     
     Args：
         command：传入的命令字符串
@@ -284,13 +282,13 @@ def run_bash(command: str) -> str:
     if any(cmd in command for cmd in dangerous_commands):
         return f"命令 {command} 中包含危险指令, 终止运行"
     try:
-        r = subprocess.run(command, shell=True, cwd=Path.cwd(), capture_output=True, text=True, timeout=120)
-        out = (r.stdout + r.stderr).strip() or "暂无输出内容"
-        if len(out) > max_output_length:
-            out = out[:max_output_length] + " [内容超长已截断...]"
-        return out
+        r = subprocess.run(command, shell=True, cwd=Path.cwd(), capture_output=True, text=True, timeout=60)
+        out = (r.stdout + r.stderr).strip()
     except subprocess.TimeoutExpired:
-        return "执行命令超时（120秒）"
+        return "执行命令超时（60秒）"
+    if len(out) > max_output_length:
+        out = out[:max_output_length] + " [内容超长已截断...]"
+    return out or "命令无输出内容"
 
 @register(require_approval=False)
 def read_file(file: str) -> str:
@@ -302,14 +300,14 @@ def read_file(file: str) -> str:
     Returns：
         读取的文本字符串或输出报错信息
     """
-    try:
-        lines = safe_path(file).read_text().splitlines()
-        out = "\n".join(lines) if lines else "暂无输出内容"
-        if len(out) > max_output_length:
-            out = out[:max_output_length] + " [内容超长已截断...]"
-        return out
-    except Exception as e:
-        return f"读取文件出错 {e}"
+    fp = safe_path(file)
+    if not fp.exists():
+        return f"文件 {fp} 不存在"
+    lines = fp.read_text().splitlines()
+    out = "\n".join(lines) if lines else "文件内容为空"
+    if len(out) > max_output_length:
+        out = out[:max_output_length] + " [内容超长已截断...]"
+    return out
 
 @register(require_approval=True)
 def write_file(file: str, content: str) -> str:
@@ -322,17 +320,14 @@ def write_file(file: str, content: str) -> str:
     Returns：
         写入的字节数或输出报错信息
     """
-    try:
-        fp = safe_path(file)
-        fp.parent.mkdir(parents=True, exist_ok=True)
-        fp.write_text(content)
-        return f"写入 {len(content)} 字节到文件 {file}"
-    except Exception as e:
-        return f"写入文件出错 {e}"
+    fp = safe_path(file)
+    fp.parent.mkdir(parents=True, exist_ok=True)
+    fp.write_text(content)
+    return f"写入 {len(content)} 字节到文件 {file}"
 
 @register(require_approval=True)
 def edit_file(file: str, old_text: str, new_text: str) -> str:
-    """编辑文件，将文件中的旧文本替换为新文本
+    """编辑文件，将文件中的旧文本全部替换为新文本（replace_all）
     
     Args：
         file：传入的文件路径
@@ -342,15 +337,86 @@ def edit_file(file: str, old_text: str, new_text: str) -> str:
     Returns：
         文件修改成功或失败的信息
     """
+    fp = safe_path(file)
+    if not fp.exists():
+        return f"文件 {fp} 不存在"
+    content = fp.read_text()
+    if old_text not in content:
+        return f"在文件 {file} 中未找到要替换的内容"
+    fp.write_text(content.replace(old_text, new_text))
+    return f"已完成对文件 {file} 的修改"
+
+@register(require_approval=False)
+def file_glob(path: str, pattern: str) -> str:
+    """在指定目录下递归地匹配符合某种模式的文件（glob）
+    
+    Args：
+        path：传入的目录
+        pattern：要匹配的 glob 模式，支持通配符
+
+    Returns：
+        匹配到的文件或报错信息
+    """
+    root = safe_path(path)
+    if not root.is_dir():
+        return f"{path} 不是一个目录，而 file_glob 工具要求输入一个目录"
+    if not root.exists():
+        return f"目录 {root} 不存在"
+    matches = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        # 原地过滤：阻止 os.walk 进入已忽略的目录
+        dirnames[:] = [d for d in dirnames if d not in glob_ignored]
+        # 排序后使得输出的文件路径顺序是确定的
+        dirnames.sort()
+        filenames.sort()
+        for fname in filenames:
+            # 不包含隐藏文件
+            if fname.startswith('.'):
+                continue
+            if Path(fname).match(pattern):
+                matches.append(str(Path(dirpath) / fname))
+    return "\n".join(matches).strip() or "没有匹配到文件"
+
+@register(require_approval=False)
+def pattern_grep(path: str, pattern: str) -> str:
+    """在指定目录（递归地）或在文件中匹配某个字符串（grep）
+    
+    Args：
+        path：传入的目录或文件
+        pattern：要匹配的字符串（不区分大小写）
+
+    Returns：
+        匹配到的内容（文件、行号）或报错信息
+    """
+    root = safe_path(path)
+    if not root.exists():
+        return f"目录或文件 {root} 不存在"
+    command = f"grep -i -r -n {pattern} {root}"
     try:
-        fp = safe_path(file)
-        content = fp.read_text()
-        if old_text not in content:
-            return f"在文件 {file} 中未找到要替换的内容"
-        fp.write_text(content.replace(old_text, new_text, 1))
-        return f"已完成对文件 {file} 的修改"
-    except Exception as e:
-        return f"修改文件出错 {e}"
+        r = subprocess.run(command, shell=True, cwd=Path.cwd(), capture_output=True, text=True, timeout=30)
+        out = r.stdout.strip()
+    except subprocess.TimeoutExpired:
+        return "搜索字符串超时（30秒）"
+    # grep 命令对文件和目录的输出结果是不一样的
+    if root.is_file():
+        lines = [f"{str(root)}:{s}" for s in out.splitlines()]
+    else:
+        lines = [s for s in out.splitlines() if not s.endswith("binary file matches")]
+    return "\n".join(lines) or "没有匹配到字符串"
+
+@register(require_approval=False)
+def ask_user(question: str) -> str:
+    """当你对任务背景不清楚时，可以要求用户澄清问题或进一步补充背景信息。你提的问题需要简短直接。
+    
+    Args：
+        question：需要用户澄清或补充信息的问题
+
+    Returns：
+        用户返回的信息
+    """
+    from rich.prompt import Prompt
+    response = Prompt.ask(f"\n[cyan]{question}[/cyan]")
+    return response.strip()
 
 @register(require_approval=False)
 def update_todo(steps: List) -> str:
@@ -367,13 +433,13 @@ def update_todo(steps: List) -> str:
 
 @register(require_approval=False)
 def load_skill(name: str) -> str:
-    """根据 skill name 加载对应的 skill body
+    """根据技能名称加载对应的内容信息（load skill body）
     
     Args：
-        name：需要加载的 skill 名称
+        name：需要加载的技能名称
 
     Returns：
-        skill body
+        具体的技能内容
     """
     return skill_loader.load(name)
 
@@ -387,10 +453,10 @@ def save_memory(name: str, memory_description: str, memory_type: str, content: s
     3、从项目代码中总结的客观事实，例如 “这段代码的设计是因为合规，而不是技术偏好”，这种场景下将记忆保存为 project 类型。
     4、内部资源的链接地址，例如 “模板库在 ~/.minicoder/template 目录下”，这种场景下将记忆保存为 reference 类型。
     **以下这些场景绝对不能保存为记忆：**
-    1、文件结构、函数签名、目录布局，这些信息可以重新读代码得到。
+    1、文件结构、函数签名、目录布局，这些信息可以重新读代码得到，不必保存为记忆。
     2、当前任务的进度，属于 todo/task 领域。
     3、临时分支名、当前 commit 号、环境变量，这些信息会很快过时。
-    4、密钥、密码、凭证，存在信息安全风险。
+    4、密钥、密码、凭证等，不能保存为明文，因为存在信息安全风险。
 
     Args：
         name：记忆持久化后的名称
@@ -406,7 +472,7 @@ def save_memory(name: str, memory_description: str, memory_type: str, content: s
 @register(require_approval=False)
 def run_subagent(prompt: str, parent_messages: List) -> Dict:
     """启动一个全新的轻量级子智能体，它在自己的上下文中工作，和父智能体共享文件系统，但只向父智能体返回最终结果。
-    子智能体用于隔离会话，避免大段杂乱的文本污染父智能体的上下文，可用于完成相对独立的小任务。
+    子智能体用于隔离会话，避免大段杂乱的文本污染父智能体的上下文。子智能体可用于完成相对独立的小任务。
 
     Args：
         prompt：子智能体的提示词
@@ -417,23 +483,27 @@ def run_subagent(prompt: str, parent_messages: List) -> Dict:
     """
     system_prompt = (
         f"你是一个轻量级的子智能体，工作目录是 {get_project_root()}\n"
-        f"你可以读文件、写文件、编辑文件、运行shell命令、访问互联网内容\n"
+        f"你可以搜索文件、读文件、写文件、编辑文件、运行shell命令、访问互联网内容\n"
         f"你需要根据输入的提示词，自主采取行动，并返回最终的执行结果\n"
         f"你返回的结果需要按条理总结，不能返回大段的原始文本\n"
     )
+
+    from src.llm import OpenAILLM
+    
     # 系统提示词中加入工具的描述
     lines = []
     for ts in subagent_tools_schema:
         params = [f"{k}: {v['type']}" for k, v in ts["parameters"]["properties"].items()]
         lines.append(f"- {ts['function']['name']}({', '.join(params)})：{ts['function']['description']}")
     system_prompt += "\n# 可供使用的工具（tools）\n\n" + "\n".join(lines)
-    # 子智能体拥有单独的上下文
+    # 子智能体拥有单独的上下文，隔离会话，避免污染父智能体的上下文
     messages = [{"role": "system", "content": system_prompt}]
+    # 复用父智能体的消息列表（系统提示词除外），以便子智能体获得任务的背景信息
     for msg in parent_messages:
         if msg["role"] == "user" or msg["role"] == "assistant":
             messages.append(msg)
     messages.append({"role": "user", "content": prompt})
-    # 子智能体单独启用一个大模型客户端，以免破坏主智能体的 Prefix Cache
+    # 子智能体单独启用一个大模型客户端，以免破坏父智能体的 Prefix Cache
     sub_llm = OpenAILLM()
     is_finished = False
     for _ in range(max_subagent_rounds):
@@ -445,10 +515,10 @@ def run_subagent(prompt: str, parent_messages: List) -> Dict:
                 break
             retry_num += 1
         messages.append({"role": "assistant", "content": response["content"]})
-        # 大模型调用失败
+        # 大模型调用失败（一般是由网络原因引起的 timeout），返回到父智能体
         if response["finish_reason"] == "error":
             return {"content": f"大模型调用已重试 {max_retry_num} 次，仍然失败，子智能体退出。\n失败原因 {response['content']}"}
-        # 子智能体完成任务，退出循环
+        # 子智能体完成任务，退出循环，随后对历史消息进行总结输出
         elif response["finish_reason"] != "tool_calls":
             is_finished = True
             break
@@ -459,24 +529,24 @@ def run_subagent(prompt: str, parent_messages: List) -> Dict:
             ui.subagent(f"工具调用：\n\n名称：{tc[1]}\n\n参数：{tc[2]}\n\n执行结果：\n{result}")
             tool_results.append({"type": "tool_result", "tool_calls_id": tc[0], "content": result})
         messages.append({"role": "user", "content": json.dumps(tool_results, ensure_ascii=False, default=str)})
-    # 无论子智能体是否完成任务，都需要对已经生成的内容进行总结，作为子智能体的输出
+    # 无论子智能体是否完成任务，都需要对已经生成的内容进行总结，作为它的输出
     if is_finished:
         messages.append({"role": "user", "content": "你已经完成了任务，请针对输入的问题，总结历史对话信息，回答内容要简洁有条理。"})
     else:
         messages[-1]["content"] += "由于最大循环次数的限制，你没有完成任务，请针对输入的问题，总结历史对话信息，回答内容要简洁有条理。"
     response = sub_llm.invoke(messages)
     return {
-        "content": f"子智能体循环达到最大限制 {max_subagent_rounds} 次，任务终止。\n 当前的输出结果是 {response['content']}" \
+        "content": f"子智能体循环达到最大限制 {max_subagent_rounds} 次，任务终止。\n 当前的输出结果是：{response['content']}" \
             if not is_finished else response["content"],
         "input_tokens": sub_llm.input_tokens,
         "output_tokens": sub_llm.output_tokens,
     }
 
-subagent_tools_schema = generate_tools_schema([run_bash, read_file, write_file, edit_file])
+subagent_tools_schema = generate_tools_schema([run_bash, read_file, write_file, edit_file, file_glob, pattern_grep])
 subagent_llm_usage = {"input_tokens": 0, "output_tokens": 0}
 
 # 允许主智能体使用的工具集合
-agent_tools = [run_bash, read_file, write_file, edit_file, update_todo, load_skill, save_memory]
+agent_tools = [run_bash, read_file, write_file, edit_file, file_glob, pattern_grep, ask_user, update_todo, load_skill, save_memory]
 if allow_subagent():
     agent_tools.append(run_subagent)
 

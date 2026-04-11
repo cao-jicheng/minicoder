@@ -62,10 +62,11 @@ def main(
     os.environ["ALLOW_SUBAGENT"] = "true" if allow_subagent else "false"
 
     from src.llm import OpenAILLM
-    from src.agent import agent_loop, auto_compact, prompt_builder
+    from src.agent import agent_loop, prompt_builder
     from src.commands import (parse_slash_command, show_help, 
         show_status, show_messages, set_permission, set_model,
-        list_tools, list_skills, list_memory)
+        list_tools, list_skills, list_memory, clear_context,
+        compact_context)
 
     llm = OpenAILLM(model=model, base_url=base_url, api_key=api_key)
     ui.set_llm(llm)
@@ -87,42 +88,44 @@ def main(
             # 处理非法命令的情况
             if len(items) == 0:
                 continue
-            if items[0] == "/help":
+            command = items[0]
+            if command == "/help":
                 show_help()
                 continue
-            if items[0] == "/init":
+            elif command == "/init":
                 continue
-            if items[0] == "/permission":
+            elif command == "/permission":
                 set_permission(items)
                 continue
-            if items[0] == "/model":
+            elif command == "/model":
                 set_model(items)
                 continue
-            if items[0] == "/tools":
+            elif command == "/tools":
                 list_tools()
                 continue
-            if items[0] == "/skills":
+            elif command == "/skills":
                 list_skills()
                 continue
-            if items[0] == "/memory":
+            elif command == "/memory":
                 list_memory()
                 continue
-            if items[0] == "/status":
+            elif command == "/status":
                 show_status()
                 continue
-            if items[0] == "/prompt":
+            elif command == "/prompt":
                 ui.output(system_prompt)
                 continue
-            # 显示最近10条消息
-            if items[0] == "/messages":
-                show_messages(context_history[-10:])
+            elif command == "/messages":
+                show_messages(context_history[-10:]) # 显示最近10条消息
                 continue
-            # 手动触发上下文压缩
-            if query == "/compact" and context_history:
-                context_history[:] = auto_compact(llm, context_history)
+            elif command == "/clear":
+                clear_context(context_history)
+                continue
+            elif command == "/compact":
+                compact_context(context_history)
                 continue
         context_history.append({"role": "user", "content": query})
-        agent_loop(llm, context_history)
+        agent_loop(context_history)
         # 显示最终结果
         ui.result(context_history[-1]["content"])
 

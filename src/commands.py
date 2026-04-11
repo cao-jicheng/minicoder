@@ -5,6 +5,7 @@ from typing import List
 from rich import box
 from rich.table import Table
 from src.config import ui, slash_commands
+from src.agent import auto_compact
 from src.paths import get_project_root, get_permission_mode
 from src.tools import (tools_schema, skill_loader, memory_manager,
     subagent_llm_usage)
@@ -59,20 +60,29 @@ def set_permission(items: List):
     if len(items) == 1: # 只显示当前的权限模式
         ui.console.print(f"当前正处于 {get_permission_mode()} 模式")
         return
-    # 通过环境变量设置权限模式
-    if items[1].capitalize() == "Auto":
+    new_mode = items[1].capitalize()
+    # 安全措施：用户二次确认
+    if not ui.confirm(f"是否同意将权限模式设置为 {new_mode} ？"):
+        return
+    if new_mode == "Auto":
         os.environ["PERMISSION_MODE"] = "Auto"
-    elif items[1].capitalize() == "Plan":
+    elif new_mode == "Plan":
         os.environ["PERMISSION_MODE"] = "Plan"
     else:
         os.environ["PERMISSION_MODE"] = "Default"
+    # 读取当前权限模式，确认更改已经生效
     ui.update(f"已设置权限为 {get_permission_mode()} 模式")
 
 def set_model(items: List):
     if len(items) == 1: # 只显示当前的大模型
         ui.console.print(f"当前使用的是 {ui.llm.get_provider()} 大语言模型")
         return
-    ui.llm.reset_model(items[1])
+    new_model = items[1]
+    # 安全措施：用户二次确认
+    if not ui.confirm(f"是否同意将大模型更改为 {new_model} ？"):
+        return
+    ui.llm.reset_model(new_model)
+    # 读取当前大模型，确认更改已经生效
     ui.update(f"已更换大语言模型为 {ui.llm.get_provider()}")
 
 def list_tools():
@@ -102,3 +112,16 @@ def list_memory():
         table.add_row(n, s.get("type"), s.get("description"))
     ui.console.print(table)
 
+def clear_context(messages: List):
+    # 安全措施：用户二次确认
+    if not ui.confirm(f"是否同意清空上下文中所有的消息？"):
+        return
+    # 只保留系统提示词（第一条消息）
+    messages[:] = [m for m in messages if m["role"] == "system"]
+    ui.update("已清空上下文消息（只保留系统提示词）")
+
+def compact_context(messages: List):
+    # 安全措施：用户二次确认
+    if not ui.confirm(f"是否同意压缩上下文？"):
+        return
+    messages[:] = auto_compact(messages)
