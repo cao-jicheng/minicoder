@@ -425,7 +425,8 @@ def ask_user(question: str) -> str:
         用户返回的信息
     """
     from rich.prompt import Prompt
-    response = Prompt.ask(f"\n[cyan]{question}[/cyan]")
+    ui.console.print(f"\n[cyan]{question}[/cyan]")
+    response = Prompt.ask(f"\n用户输入")
     return response.strip()
 
 @register(require_approval=False)

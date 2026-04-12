@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from src.ui import AgentUI
 
-current_version = "0.1.2"
+current_version = "1.0.0"
 
-dangerous_commands = [
+dangerous_commands = (
     "rm -rf",
     "dd if=/dev/zero",
     "mkfs",
@@ -16,9 +16,9 @@ dangerous_commands = [
     "wget",
     "shutdown",
     "poweroff",
-]
+)
 
-glob_ignored = {
+glob_ignored = (
     ".git",
     ".svn",
     ".vscode",
@@ -30,7 +30,15 @@ glob_ignored = {
     "node_modules",
     "site-packages",
     "__pycache__",
-}
+)
+
+llm_models = (
+    "Pro/zai-org/GLM-5.1",
+    "Pro/MiniMaxAI/MiniMax-M2.5",
+    "Pro/moonshotai/Kimi-K2.5",
+    "Pro/deepseek-ai/DeepSeek-V3.2",
+    "Custom",
+)
 
 slash_commands = {
     "/help": "显示帮助信息",
@@ -38,8 +46,8 @@ slash_commands = {
     "/status": "显示当前会话的状态信息",
     "/prompt": "显示系统提示词",
     "/messages": "显示最近10条会话消息",
-    "/model": "显示或更换大语言模型（目前只能从 Siliconflow 系列模型中选择）",
-    "/permission": "显示或设置权限模式（Default、Auto、Plan）",
+    "/model": "更换大语言模型（目前只能从 Siliconflow 系列模型中选择）",
+    "/permission": "设置权限模式（Default、Auto、Plan）",
     "/tools": "列出已安装的工具",
     "/skills": "列出已安装的技能",
     "/memory": "列出已保存的记忆",

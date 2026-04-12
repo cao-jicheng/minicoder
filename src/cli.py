@@ -63,7 +63,7 @@ def main(
 
     from src.llm import OpenAILLM
     from src.agent import agent_loop, prompt_builder
-    from src.commands import (parse_slash_command, show_help, 
+    from src.commands import (check_command_passed, show_help, 
         show_status, show_messages, set_permission, set_model,
         list_tools, list_skills, list_memory, clear_context,
         compact_context)
@@ -84,44 +84,42 @@ def main(
             break
         # 处理斜杠命令
         if query.startswith('/'):
-            items = parse_slash_command(query)
-            # 处理非法命令的情况
-            if len(items) == 0:
+            # 检查命令是否合法
+            if not check_command_passed(query):
                 continue
-            command = items[0]
-            if command == "/help":
+            if query == "/help":
                 show_help()
                 continue
-            elif command == "/init":
+            elif query == "/init":
                 continue
-            elif command == "/permission":
-                set_permission(items)
+            elif query == "/permission":
+                set_permission()
                 continue
-            elif command == "/model":
-                set_model(items)
+            elif query == "/model":
+                set_model()
                 continue
-            elif command == "/tools":
+            elif query == "/tools":
                 list_tools()
                 continue
-            elif command == "/skills":
+            elif query == "/skills":
                 list_skills()
                 continue
-            elif command == "/memory":
+            elif query == "/memory":
                 list_memory()
                 continue
-            elif command == "/status":
+            elif query == "/status":
                 show_status()
                 continue
-            elif command == "/prompt":
+            elif query == "/prompt":
                 ui.output(system_prompt)
                 continue
-            elif command == "/messages":
+            elif query == "/messages":
                 show_messages(context_history[-10:]) # 显示最近10条消息
                 continue
-            elif command == "/clear":
+            elif query == "/clear":
                 clear_context(context_history)
                 continue
-            elif command == "/compact":
+            elif query == "/compact":
                 compact_context(context_history)
                 continue
         context_history.append({"role": "user", "content": query})

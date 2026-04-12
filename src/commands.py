@@ -4,18 +4,17 @@ import os
 from typing import List
 from rich import box
 from rich.table import Table
-from src.config import ui, slash_commands
+from src.config import ui, slash_commands, llm_models
 from src.agent import auto_compact
 from src.paths import get_project_root, get_permission_mode
 from src.tools import (tools_schema, skill_loader, memory_manager,
     subagent_llm_usage)
 
-def parse_slash_command(command: str) -> List:
-    items = command.split()
-    if items[0] not in slash_commands.keys():
-        ui.warning(f"{items[0]} 不是一个合法的命令，请通过 /help 查看支持的命令")
-        return []
-    return items
+def check_command_passed(command: str) -> bool:
+    if command not in slash_commands.keys():
+        ui.warning(f"{command} 不是一个合法的命令，请通过 /help 查看支持的命令")
+        return False
+    return True
 
 def show_help():
     table = Table(box=box.ASCII, show_lines=True)
@@ -56,34 +55,24 @@ def show_messages(messages: List):
         table.add_row(msg["role"], msg["content"][:500])
     ui.console.print(table)
         
-def set_permission(items: List):
-    if len(items) == 1: # 只显示当前的权限模式
-        ui.console.print(f"当前正处于 {get_permission_mode()} 模式")
+def set_permission():
+    if not ui.confirm(f"是否需要更改权限模式（当前为 {get_permission_mode()} 模式）？"):
         return
-    new_mode = items[1].capitalize()
-    # 安全措施：用户二次确认
-    if not ui.confirm(f"是否同意将权限模式设置为 {new_mode} ？"):
-        return
-    if new_mode == "Auto":
-        os.environ["PERMISSION_MODE"] = "Auto"
-    elif new_mode == "Plan":
-        os.environ["PERMISSION_MODE"] = "Plan"
-    else:
-        os.environ["PERMISSION_MODE"] = "Default"
-    # 读取当前权限模式，确认更改已经生效
-    ui.update(f"已设置权限为 {get_permission_mode()} 模式")
+    new_mode = ui.choose("  请选择一种权限模式：", ["Default", "Auto", "Plan"])
+    os.environ["PERMISSION_MODE"] = new_mode
 
-def set_model(items: List):
-    if len(items) == 1: # 只显示当前的大模型
-        ui.console.print(f"当前使用的是 {ui.llm.get_provider()} 大语言模型")
+def set_model():
+    if not ui.confirm(f"是否需要更改大语言模型（当前为 {ui.llm.get_provider()} 模型）？"):
         return
-    new_model = items[1]
-    # 安全措施：用户二次确认
-    if not ui.confirm(f"是否同意将大模型更改为 {new_model} ？"):
-        return
+    new_model = ui.choose("  请选择一个模型名称：", llm_models)
+    from datetime import datetime
+    from rich.prompt import Prompt
+    if new_model == "Custom":
+        response = Prompt.ask(f"\n请输入自定义模型名称")
+        time_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        ui.console.print(f"\n[green][{time_now}]🎙️\x20\x20用户输入:\n\r{response}[/green]")
+        new_model = response.strip()
     ui.llm.reset_model(new_model)
-    # 读取当前大模型，确认更改已经生效
-    ui.update(f"已更换大语言模型为 {ui.llm.get_provider()}")
 
 def list_tools():
     table = Table(box=box.ASCII, show_lines=True)
