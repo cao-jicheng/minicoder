@@ -5,6 +5,7 @@ import re
 import json
 import inspect
 import subprocess
+import frontmatter
 from pathlib import Path
 from dataclasses import dataclass
 from json_repair import repair_json
@@ -12,7 +13,7 @@ from typing import List, Dict, Callable, Any
 from src.config import (ui, dangerous_commands, max_output_length, 
     max_memory_entities, max_subagent_rounds, glob_ignored)
 from src.paths import (get_project_root, get_skills_dir, get_memory_dir,
-    get_persistence_dir, get_permission_mode, allow_subagent)
+    get_snapshot_dir, get_permission_mode, allow_subagent)
 
 @dataclass
 class TodoItem:
@@ -95,26 +96,12 @@ class MemoryManager:
         memory_path = get_memory_dir() / "MEMORY.md"
         memory_path.write_text("# 记忆索引\n\n" + "\n".join(lines))
 
-    def _parse_frontmatter(self, text: str) -> Dict | None:
-        match = re.match(r"^---\s*\n(.*?)\n---\s*\n(.*)", text, re.DOTALL)
-        if not match:
-            return None
-        header, body = match.group(1), match.group(2)
-        result = {"content": body.strip()}
-        for line in header.splitlines():
-            # 同时支持中文冒号和英文冒号
-            separator = '：' if '：' in line else ':'
-            if separator in line:
-                key, _, value = line.partition(separator)
-                result[key.strip()] = value.strip()
-        return result
-
     def save(self, name: str, mem_desc: str, mem_type: str, content: str) -> str:
         if mem_type not in self.memory_types:
             return f"{mem_type} 不是合法的记忆类型，期望：{'、'.join(self.memory_types)}"
         # 将空格、$、#、*等特殊字符转换为下划线，避免保存文件时出现路径错误
         safe_name = re.sub(r"[^a-zA-Z0-9_-]", '_', name.lower())
-        frontmatter = (
+        memory = (
             f"---\n"
             f"name: {name}\n"
             f"description: {mem_desc}\n"
@@ -124,7 +111,7 @@ class MemoryManager:
         )
         file_name = f"{safe_name}.md"
         file_path = get_memory_dir() / file_name
-        file_path.write_text(frontmatter)
+        file_path.write_text(memory)
         self.memories[name] = {
             "description": mem_desc,
             "type": mem_type,
@@ -139,15 +126,18 @@ class MemoryManager:
         for md_file in sorted(get_memory_dir().glob("*.md")):
             if md_file.name == "MEMORY.md":
                 continue
-            parsed_memory = self._parse_frontmatter(md_file.read_text())
-            if parsed_memory:
-                name = parsed_memory.get("name", md_file.stem)
-                self.memories[name] = {
-                    "description": parsed_memory.get("description", ""),
-                    "type": parsed_memory.get("type", "project"),
-                    "content": parsed_memory.get("content", ""),
-                    "file": md_file.name,
-                }
+            try:
+                post = frontmatter.load(md_file)
+            except Exception as e:
+                ui.warning(f"记忆 {md_file.relative_to(get_project_root())} 解析失败，错误原因 {e}")
+                continue
+            name = post.metadata.get("name", md_file.stem)
+            self.memories[name] = {
+                "description": post.metadata.get("description", ""),
+                "type": post.metadata.get("type", "project"),
+                "content": post.content,
+                "file": md_file.name,
+            }            
         return f"已加载 {len(self.memories)} 条记忆"
 
 memory_manager = MemoryManager()
@@ -155,19 +145,17 @@ memory_manager = MemoryManager()
 class SkillLoader:
     def __init__(self):
         self.skills = {}
-        for f in sorted(get_skills_dir().rglob("SKILL.md")):
-            text = f.read_text()
-            match = re.match(r"^---\n(.*?)\n---\n(.*)", text, re.DOTALL)
-            meta, body = {}, text
-            if match:
-                for line in match.group(1).strip().splitlines():
-                    separator = '：' if '：' in line else ':'
-                    if separator in line:
-                        k, _, v = line.partition(separator)
-                        meta[k.strip()] = v.strip()
-                body = match.group(2).strip()
-            name = meta.get("name", f.parent.name)
-            self.skills[name] = {"meta": meta, "body": body}
+        self.update()
+    
+    def update(self):
+        for path in sorted(get_skills_dir().rglob("SKILL.md")):
+            try:
+                post = frontmatter.load(path)
+            except Exception as e:
+                ui.warning(f"技能 {path.relative_to(get_project_root())} 解析失败，错误原因 {e}")
+                continue
+            name = post.metadata.get("name", path.parent.name)
+            self.skills[name] = {"meta": post.metadata, "body": post.content, "folder": path.parent.name}
     
     def load(self, name: str) -> str:
         skill = self.skills.get(name)
@@ -214,7 +202,7 @@ def tool_hander(name, args, messages) -> Any:
 def persist_large_output(tool_calls_id: str, output: str) -> str:
     if len(output) < max_output_length:
         return output
-    stored_path = get_persistence_dir() / f"{tool_calls_id}.txt"
+    stored_path = get_snapshot_dir() / f"{tool_calls_id}.txt"
     stored_path.write_text(output)
     preview = output[:2000]
     return (
@@ -296,12 +284,11 @@ def run_bash(command: str) -> str:
     if any(cmd in command for cmd in dangerous_commands):
         return f"命令 {command} 中包含危险指令, 终止运行"
     try:
-        r = subprocess.run(command, shell=True, cwd=Path.cwd(), capture_output=True, text=True, timeout=60)
+        r = subprocess.run(command, shell=True, cwd=Path.cwd(), capture_output=True, text=True, timeout=120)
         out = (r.stdout + r.stderr).strip()
-        return out or "命令无输出内容"
-    except subprocess.TimeoutExpired:
-        return "执行命令超时（60秒）"
-    
+        return out or "命令执行成功"
+    except Exception as e:
+        return f"命令执行失败，错误原因 {e}"
 
 @register(require_approval=False)
 def read_file(file: str) -> str:
@@ -405,8 +392,8 @@ def pattern_grep(path: str, pattern: str) -> str:
     try:
         r = subprocess.run(command, shell=True, cwd=Path.cwd(), capture_output=True, text=True, timeout=30)
         out = r.stdout.strip()
-    except subprocess.TimeoutExpired:
-        return "搜索字符串超时（30秒）"
+    except Exception as e:
+        return f"搜索字符串失败，错误原因 {e}"
     # grep 命令对文件和目录的输出结果是不一样的
     if root.is_file():
         lines = [f"{str(root)}:{s}" for s in out.splitlines()]

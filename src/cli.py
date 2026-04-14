@@ -66,7 +66,7 @@ def main(
     from src.commands import (check_command_passed, show_help, 
         show_status, show_messages, set_permission, set_model,
         list_tools, list_skills, list_memory, clear_context,
-        compact_context)
+        compact_context, install_skills)
 
     llm = OpenAILLM(model=model, base_url=base_url, api_key=api_key)
     ui.set_llm(llm)
@@ -122,6 +122,9 @@ def main(
             elif query == "/compact":
                 compact_context(context_history)
                 continue
+        if query.startswith("npx skills add"):
+            install_skills(query, context_history)
+            continue
         context_history.append({"role": "user", "content": query})
         agent_loop(context_history)
         # 显示最终结果

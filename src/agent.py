@@ -20,9 +20,15 @@ def auto_compact(messages: List) -> List:
         # 保留系统提示词
         if msg["role"] == "system":
             keep_messages.append(msg)
-        # 保留已经压缩过的会话
-        elif msg["role"] == "user" and msg["content"].startswith("[Compressed."):
-            keep_messages.append(msg)
+        elif msg["role"] == "user":
+            # 保留已经压缩过的消息
+            if msg["content"].startswith("[Compressed."):
+                keep_messages.append(msg)
+                keep_messages.append({"role": "assistant", "content": ""})
+            # 保留用户标记为重要的消息
+            elif msg["content"].startswith("[Important."):
+                keep_messages.append(msg)
+                keep_messages.append({"role": "assistant", "content": ""})
     path = get_transcripts_dir() / f"transcript_{int(time.time())}.jsonl"
     # 会话历史保存一份副本到磁盘
     with open(path, "w") as f:
@@ -37,14 +43,16 @@ def auto_compact(messages: List) -> List:
         "5、必须保留的背景信息：用户偏好信息，领域细节特点，明确的约束条件\n"
         "回答内容需要简洁但必须准确，不要捏造内容，不要歪曲事实，限制在 3000 字以内。"
     )
+    # 补充一个空的 assistant 回答，以便和 user 一一对应
+    messages.append({"role": "assistant", "content": ""})
     messages.append({"role": "user", "content": compact_prompt})
     response = ui.llm.invoke(messages, max_tokens=2000)
-    # 上下文压缩失败，回退会话列表
+    # 上下文压缩失败，回退会话列表（删除最后添加的 assistant 和 user）
     if response["finish_reason"] == "error":
         ui.warning(f"上下文压缩失败，由于{response['content']}")
-        return messages[:-1]
+        return messages[:-2]
     keep_messages.append({"role": "user", "content": f"[Compressed. Transcript: {path}]\n{response['content']}"})
-    ui.update(f"已完成上下文压缩：{len(messages) - 1} 条消息 -> {len(keep_messages)} 条消息")
+    ui.update(f"已完成上下文压缩：{len(messages) - 2} 条消息 -> {len(keep_messages)} 条消息")
     return keep_messages
 
 class SystemPromptBuilder:

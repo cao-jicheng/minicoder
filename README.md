@@ -6,6 +6,7 @@
 - 内置 Bash、Read、Write、Edit、Glob、Grep 等文件读写改搜的基础工具     
 - 支持 Default、Auto、Plan 三种权限模式     
 - 支持渐进式加载 Skills 技能的功能     
+- 支持通过 npx 在线安装 Skills 或离线安装 Skills 压缩包的功能    
 - 支持路径沙箱检查的功能，确保工具访问不越界    
 - 支持上下文超限触发自动压缩的功能    
 - 支持根据工具函数 docstring 自动推导 schema 的功能，方便拓展工具集合     
@@ -56,8 +57,8 @@ uv run minicoder
 
 ### 4、查看轨迹文件
 
-退出会话界面后，在你的项目根目录的 .trajectory 文件夹（默认是 ~/.minicoder/.trajectory）可查看类似 `record_xxxxxxxx_yyyyyy.html` 的轨迹文件，
-它记录了你在会话界面和编程助手交互的每一次操作。轨迹文件中 “xxxxxxxx” 表示保存时的日期（例如 20260411），“yyyyyy” 表示保存时的时间（例如 182512）。
+退出会话界面后，在你的项目根目录的 .agents/trajectory 文件夹（默认是 ~/.minicoder/.agents/trajectory）可查看类似 `record_xxxxxxxx_yyyyyy.html` 的轨迹文件，
+它记录了你在会话界面和编程助手交互的每一次操作。轨迹文件中 `xxxxxxxx` 表示保存时的日期（例如 20260411），`yyyyyy` 表示保存时的时间（例如 182512）。
 
 ### 5、命令行参数
 

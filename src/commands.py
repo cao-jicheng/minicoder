@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import os
+import subprocess
 from typing import List
 from rich import box
 from rich.table import Table
 from src.config import ui, slash_commands, llm_models
 from src.agent import auto_compact
-from src.paths import get_project_root, get_permission_mode
+from src.paths import (get_project_root, get_current_dir, 
+    get_skills_dir, get_permission_mode)
 from src.tools import (tools_schema, skill_loader, memory_manager,
     subagent_llm_usage)
 
@@ -91,6 +93,41 @@ def list_skills():
     for n, s in skill_loader.skills.items():
         table.add_row(n, s["meta"].get("description", ''))
     ui.console.print(table)
+
+def install_skills(command: str, messages: List):
+    # ["npx", "skills", "add", "<skills_repo>", ...]
+    items = command.split()
+    skill_repo_name = items[items.index("add") + 1]
+    _, skill_name = os.path.split(skill_repo_name)
+    if skill_repo_name.endswith(".zip"):
+        need_download = False
+        tmp_file = os.path.abspath(skill_repo_name)
+        skill_name = skill_name[:-9]  # 去除 -main.zip 后缀名
+    else:
+        need_download = True
+        tmp_file = "/tmp/skills.zip"
+    if need_download:
+        download_cmd = f"wget -O {tmp_file} https://github.com/{skill_repo_name}/archive/refs/heads/main.zip"
+        try:
+            r = subprocess.run(download_cmd, shell=True, cwd=get_current_dir(), capture_output=True, text=True, timeout=120)
+        except Exception as e:
+            ui.error(f"{skill_repo_name} 安装包下载失败，错误原因 {e}")
+            return
+    name_idx = [i for i, t in enumerate(items) if t == "--skill" or t == "-s"]
+    rename = items[name_idx[0] + 1] if len(name_idx) > 0 else skill_name
+    unzip_cmd = f"unzip -o {tmp_file} && mv {skill_name}-main {rename}"
+    try:
+        r = subprocess.run(unzip_cmd, shell=True, cwd=get_skills_dir(), capture_output=True, text=True)
+        ui.update(f"技能 {skill_repo_name} 已成功安装，通过 /skills 可以查看详情")
+    except Exception as e:
+        ui.error(f"{skill_repo_name} 解压缩失败，错误原因 {e}")
+        return
+    # 更新技能列表
+    skill_loader.update()
+    added_skill = [(n, s) for n, s in skill_loader.skills.items() if s["folder"] == rename][0]
+    skill_schema = f"- {added_skill[0]}：{added_skill[1]['meta'].get('description', '')}"
+    messages.append({"role": "user", "content": f"[Important. 新添加的技能（skills）]\n\n{skill_schema}"})
+    messages.append({"role": "assistant", "content": ""})
 
 def list_memory():
     table = Table(box=box.ASCII, show_lines=True)

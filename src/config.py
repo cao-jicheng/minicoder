@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from src.ui import AgentUI
 
-current_version = "1.0.0"
+current_version = "1.1.0"
 
 dangerous_commands = (
     "rm -rf",
@@ -55,14 +55,14 @@ slash_commands = {
     "/clear": "清空上下文中所有的消息",
 }
 
-ui = AgentUI(record=False, version=current_version)
+ui = AgentUI(record=True, version=current_version)
 
 # 工具输出结果的最大字符长度
 max_output_length = 30000
 # 大模型上下文窗口的最大tokens数量
 max_context_tokens = 100*1000
 # 主智能体最大循环次数
-max_agent_rounds = 50
+max_agent_rounds = 100
 # 子智能体最大循环次数
 max_subagent_rounds = 20
 # 记忆条目的最大保存数量

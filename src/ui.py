@@ -122,7 +122,7 @@ class AgentUI():
         self.console.print(f"\n[yellow][{time_now()}]⚠️\x20\x20警告提醒:\n\r{data}[/yellow]")
 
     def error(self, data: str):
-        self.console.print(f"\n[red][{time_now()}]❌\x20严重错误:\n\r{data}[/red]")
+        self.console.print(f"\n[red][{time_now()}]❌\x20执行出错:\n\r{data}[/red]")
     
     def output(self, data: str):
         md_data = Markdown(data)
