@@ -502,7 +502,7 @@ def run_subagent(prompt: str, parent_messages: List) -> Dict:
             messages.append(msg)
     messages.append({"role": "user", "content": prompt})
     # 子智能体单独启用一个大模型客户端，以免破坏父智能体的 Prefix Cache
-    sub_llm = OpenAILLM()
+    sub_llm = OpenAILLM(model=ui.llm.model, base_url=ui.llm.base_url, api_key=ui.llm.api_key)
     is_finished = False
     for _ in range(max_subagent_rounds):
         response = sub_llm.invoke(messages, tools=subagent_tools_schema)

@@ -13,7 +13,9 @@ from src.tools import (tools_schema, skill_loader, memory_manager,
     subagent_llm_usage)
 
 def check_command_passed(command: str) -> bool:
-    if command not in slash_commands.keys():
+    # 前面已经判断 command 以 “/” 开头，因此无需再判空
+    cmd = command.split()[0]
+    if cmd not in slash_commands.keys():
         ui.warning(f"{command} 不是一个合法的命令，请通过 /help 查看支持的命令")
         return False
     return True
@@ -43,9 +45,11 @@ def show_status():
         else:
             return str(num)
 
-    ui.console.print(f"\n[cadet_blue][子智能体 tokens 使用量统计]\n"
-        f"输入 {_convert_num(subagent_llm_usage['input_tokens'])} tokens, "
-        f"输出 {_convert_num(subagent_llm_usage['output_tokens'])} tokens [/cadet_blue]\n"
+    ui.console.print(
+        f"\n[cadet_blue][子智能体词元使用量统计]"
+        f"\n输入 {_convert_num(subagent_llm_usage['input_tokens'])} tokens"
+        f"\n输出 {_convert_num(subagent_llm_usage['output_tokens'])} tokens"
+        f"[/cadet_blue]"
     )
     ui.show_usage()
 
@@ -67,12 +71,10 @@ def set_model():
     if not ui.confirm(f"是否需要更改大语言模型（当前为 {ui.llm.get_provider()} 模型）？"):
         return
     new_model = ui.choose("  请选择一个模型名称：", llm_models)
-    from datetime import datetime
     from rich.prompt import Prompt
     if new_model == "Custom":
         response = Prompt.ask(f"\n请输入自定义模型名称")
-        time_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        ui.console.print(f"\n[green][{time_now}]🎙️\x20\x20用户输入:\n\r{response}[/green]")
+        ui.show_user_input(response)
         new_model = response.strip()
     ui.llm.reset_model(new_model)
 
@@ -151,3 +153,39 @@ def compact_context(messages: List):
     if not ui.confirm(f"是否同意压缩上下文？"):
         return
     messages[:] = auto_compact(messages)
+
+def invoke_with_llm_once(query: str, messages: List):
+    # 去除开头的 /btw 字符串
+    prompt = query[4:].strip()
+    if not prompt:
+        return
+    # 直接使用当前的会话历史，提供背景信息和复用 prefix cache
+    messages.append({"role": "user", "content": prompt})
+    result = ui.llm.invoke(messages)
+    if result["finish_reason"] == "error":
+        ui.error(result["content"])
+    else:
+        ui.output(result["content"])
+    # 与大模型交互完成后，删除添加的 user 信息，恢复原始的会话历史
+    messages.pop()
+
+def backout_messages(query: str, messages: List):
+    # 安全措施：用户二次确认
+    if not ui.confirm(f"是否要回退会话历史信息？"):
+        return
+    # 默认回退最近一轮
+    num_backout = 1
+    items = query.split()
+    if len(items) > 1:
+        try:
+            num_backout = int(items[1])
+            assert num_backout <= 3
+        except:
+            ui.warning(f"回退超过 3 轮或者不是整数：{items[1]}，默认回退 1 轮")
+            num_backout = 1
+    if len(messages) < 2:
+        ui.warning(f"会话历史只有 system 消息，无法回退")
+        return
+    # 每一轮交互信息包含 user 和 assistant
+    messages[:] = messages[:-2 * num_backout]
+    ui.update(f"已回退最近 {num_backout} 轮会话历史信息")

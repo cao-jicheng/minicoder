@@ -151,6 +151,9 @@ class AgentUI():
         )
         self.console.print(f"\n[green][{time_now()}]🎙️\x20\x20用户输入:\n\r{response}[/green]")
         return response.strip()
+
+    def show_user_input(self, message: str):
+        self.console.print(f"\n[green][{time_now()}]🎙️\x20\x20用户输入:\n\r{message}[/green]")
     
     def confirm(self, question: str) -> bool:
         response = Confirm.ask("\n" + question)
@@ -187,13 +190,21 @@ class AgentUI():
     def show_usage(self):
         total_tokens = self.llm.input_tokens + self.llm.output_tokens
         cached_tokens = self.llm.cache_hit_tokens + self.llm.cache_miss_tokens
-        cached_ratio = (100 * cached_tokens / self.llm.input_tokens) if self.llm.input_tokens else 0.0
-        cache_hit_ratio = (100 * self.llm.cache_hit_tokens / cached_tokens) if cached_tokens else 0.0
-        self.console.print(f"\n[cadet_blue][主智能体 tokens 使用量统计]\n输入 {_convert_num(self.llm.input_tokens)} tokens, "
-            f"输出 {_convert_num(self.llm.output_tokens)} tokens, 总共 {_convert_num(total_tokens)} tokens,\n"
-            f"输入缓存 {_convert_num(cached_tokens)} tokens, 缓存率为 {cached_ratio:.2f} %, \n"
-            f"缓存命中 {_convert_num(self.llm.cache_hit_tokens)} tokens, 未命中 {_convert_num(self.llm.cache_miss_tokens)} tokens, "
-            f"缓存命中率为 {cache_hit_ratio:.2f} % [/cadet_blue]")
+        usage_info = (
+            f"\n[cadet_blue][主智能体词元使用量统计]"
+            f"\n输入 {_convert_num(self.llm.input_tokens)} tokens"
+            f"\n输出 {_convert_num(self.llm.output_tokens)} tokens"
+            f"\n总共 {_convert_num(total_tokens)} tokens"
+        )
+        if cached_tokens > 0:
+            cached_ratio = (100 * cached_tokens / self.llm.input_tokens)
+            cache_hit_ratio = (100 * self.llm.cache_hit_tokens / cached_tokens)
+            usage_info += f"\n输入缓存 {_convert_num(cached_tokens)} tokens（缓存率为 {cached_ratio:.2f} %）"
+            usage_info += f"\n缓存命中 {_convert_num(self.llm.cache_hit_tokens)} tokens, "
+            usage_info += f"未命中 {_convert_num(self.llm.cache_miss_tokens)} tokens"
+            usage_info += f"（缓存命中率为 {cache_hit_ratio:.2f} %）"
+        usage_info += "[/cadet_blue]"
+        self.console.print(usage_info)
         
     def show_banner(self):
         logo = '\n'.join(minicoder_logo)

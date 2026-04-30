@@ -23,14 +23,14 @@ def main(
         help="为当前会话取一个用于显示的名称",
     ),
     model: str = typer.Option(
-        "Pro/MiniMaxAI/MiniMax-M2.5",
+        None,
         "--model",
-        help="大语言模型的名称",
+        help="大语言模型的名称（默认为 Pro/MiniMaxAI/MiniMax-M2.5）",
     ),
     base_url: str = typer.Option(
-        "https://api.siliconflow.cn/v1",
+        None,
         "--base-url",
-        help="大语言模型 API 访问地址",
+        help="大语言模型 API 访问地址（默认为 https://api.siliconflow.cn/v1）",
     ),
     api_key: str = typer.Option(
         None,
@@ -66,7 +66,8 @@ def main(
     from src.commands import (check_command_passed, show_help, 
         show_status, show_messages, set_permission, set_model,
         list_tools, list_skills, list_memory, clear_context,
-        compact_context, install_skills)
+        compact_context, install_skills, invoke_with_llm_once,
+        backout_messages)
 
     llm = OpenAILLM(model=model, base_url=base_url, api_key=api_key)
     ui.set_llm(llm)
@@ -113,7 +114,7 @@ def main(
             elif query == "/prompt":
                 ui.output(system_prompt)
                 continue
-            elif query == "/messages":
+            elif query == "/context":
                 show_messages(context_history[-10:]) # 显示最近10条消息
                 continue
             elif query == "/clear":
@@ -121,6 +122,12 @@ def main(
                 continue
             elif query == "/compact":
                 compact_context(context_history)
+                continue
+            elif query.startswith("/btw"):
+                invoke_with_llm_once(query, context_history)
+                continue
+            elif query.startswith("/rewind"):
+                backout_messages(query, context_history)
                 continue
         if query.startswith("npx skills add"):
             install_skills(query, context_history)

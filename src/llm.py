@@ -92,8 +92,11 @@ class OpenAILLM:
         # 累计本次调用的 token 使用量          
         self.input_tokens += int(response.usage.prompt_tokens)
         self.output_tokens += int(response.usage.completion_tokens)
-        self.cache_hit_tokens += int(response.usage.prompt_cache_hit_tokens)
-        self.cache_miss_tokens += int(response.usage.prompt_cache_miss_tokens)
+        # 有些 LLM 提供商不返回 cache hit/miss 的统计数据，需要在此检测是否存在相关字段，避免报错
+        if hasattr(response.usage, "prompt_cache_hit_tokens"):
+            self.cache_hit_tokens += int(response.usage.prompt_cache_hit_tokens)
+        if hasattr(response.usage, "prompt_cache_miss_tokens"):
+            self.cache_miss_tokens += int(response.usage.prompt_cache_miss_tokens)
         tool_calls = []
         if response.choices[0].finish_reason == "tool_calls":
             tool_calls = [(t.id, t.function.name, t.function.arguments) for t in response.choices[0].message.tool_calls]
@@ -103,3 +106,8 @@ class OpenAILLM:
             "tool_calls": tool_calls,
             "context_tokens": int(response.usage.prompt_tokens) + int(response.usage.completion_tokens)
         }
+
+
+if __name__ == "__main__":
+    my_llm = OpenAILLM()
+    my_llm.invoke("介绍一下你自己")
