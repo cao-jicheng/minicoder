@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import pickle
 import subprocess
 from typing import List
 from rich import box
@@ -8,7 +9,7 @@ from rich.table import Table
 from src.config import ui, slash_commands, llm_models
 from src.agent import auto_compact
 from src.paths import (get_project_root, get_current_dir, 
-    get_skills_dir, get_permission_mode)
+    get_skills_dir, get_permission_mode, get_snapshot_dir)
 from src.tools import (tools_schema, skill_loader, memory_manager,
     subagent_llm_usage)
 
@@ -61,13 +62,15 @@ def show_messages(messages: List):
         table.add_row(msg["role"], msg["content"][:500])
     ui.console.print(table)
         
-def set_permission():
+def set_permission(messages: List):
     if not ui.confirm(f"是否需要更改权限模式（当前为 {get_permission_mode()} 模式）？"):
         return
     new_mode = ui.choose("  请选择一种权限模式：", ["Default", "Auto", "Plan"])
     os.environ["PERMISSION_MODE"] = new_mode
+    messages.append({"role": "user", "content": f"权限模式已切换为 {get_permission_mode()}"})
+    messages.append({"role": "assistant", "content": ""})
 
-def set_model():
+def set_model(messages: List):
     if not ui.confirm(f"是否需要更改大语言模型（当前为 {ui.llm.get_provider()} 模型）？"):
         return
     new_model = ui.choose("  请选择一个模型名称：", llm_models)
@@ -77,6 +80,8 @@ def set_model():
         ui.show_user_input(response)
         new_model = response.strip()
     ui.llm.reset_model(new_model)
+    messages.append({"role": "user", "content": f"大语言模型已切换为 {ui.llm.get_provider()}"})
+    messages.append({"role": "assistant", "content": ""})
 
 def list_tools():
     table = Table(box=box.ASCII, show_lines=True)
@@ -189,3 +194,25 @@ def backout_messages(query: str, messages: List):
     # 每一轮交互信息包含 user 和 assistant
     messages[:] = messages[:-2 * num_backout]
     ui.update(f"已回退最近 {num_backout} 轮会话历史信息")
+
+def load_snapshot(query: str, messages: List):
+    # 去除开头的 /resume 字符串
+    uid = query[8:].strip()
+    if not uid:
+        ui.warning("会话 ID 为空，恢复会话失败")
+        return
+    path = get_snapshot_dir() / f"resume_{uid}.pkl"
+    if not path.exists():
+        ui.warning(f"路径 {path} 不存在，恢复会话失败")
+        return
+    with open(path, "rb") as f:
+        data = pickle.load(f)
+    # 设置环境变量
+    os.environ["PROJECT_ROOT"] = str(data["project_root"])
+    os.environ["PERMISSION_MODE"] = str(data["permission_mode"])
+    # 设置大语言模型
+    llm_provider = str(data["llm_provider"])
+    ui.llm.reset_model(llm_provider.split(':')[1])
+    # 设置会话消息
+    messages[:] = data["messages"]
+    ui.update(f"会话已从 {path} 恢复")

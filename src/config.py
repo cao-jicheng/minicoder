@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from src.ui import AgentUI
 
-current_version = "1.2.0"
+current_version = "1.2.1"
 
 dangerous_commands = (
     "rm -rf",
@@ -55,6 +55,7 @@ slash_commands = {
     "/clear": "清空上下文中所有的消息",
     "/btw": "单独和大模型交流一次，消息不加入会话历史",
     "/rewind": "回退会话历史（默认回退最近 1 次消息，最多回退最近 3 次消息）",
+    "/resume": "从指定的会话 ID 恢复上下文",
 }
 
 ui = AgentUI(record=True, version=current_version)

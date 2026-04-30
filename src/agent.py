@@ -9,7 +9,7 @@ from typing import List
 from pathlib import Path
 from src.config import ui, max_context_tokens, max_agent_rounds
 from src.paths import (get_project_root, get_transcripts_dir, 
-    get_skills_dir, get_memory_dir)
+    get_skills_dir, get_memory_dir, get_permission_mode)
 from src.tools import (tools_schema, tool_hander, todo_manager, 
     skill_loader, memory_manager, subagent_llm_usage,
     persist_large_output)
@@ -29,7 +29,7 @@ def auto_compact(messages: List) -> List:
             elif msg["content"].startswith("[Important."):
                 keep_messages.append(msg)
                 keep_messages.append({"role": "assistant", "content": ""})
-    path = get_transcripts_dir() / f"transcript_{int(time.time())}.jsonl"
+    path = get_transcripts_dir() / f"compact_{int(time.time())}.jsonl"
     # 会话历史保存一份副本到磁盘
     with open(path, "w") as f:
         for msg in messages:
@@ -132,9 +132,10 @@ class SystemPromptBuilder:
     def _build_environment(self) -> str:
         lines = (
             f"当前日期：{datetime.date.today().isoformat()}\n"
+            f"工作平台：{os.uname().sysname}\n"
+            f"权限模式：{get_permission_mode()}\n"
             f"项目根目录：{get_project_root()}\n"
             f"大语言模型：{ui.llm.get_provider()}\n"
-            f"工作平台：{os.uname().sysname}\n"
         )
         return "# 环境信息（environment）\n\n" + lines
 

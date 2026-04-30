@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import time
 import random
+import pickle
 from datetime import datetime
 from typing import List, Tuple, Optional
 from pathlib import Path
@@ -106,6 +107,7 @@ class AgentUI():
         version: Optional[str]=None,
         llm: Optional[OpenAILLM]=None,
     ):
+        self.uid = int(time.time())
         self.record = record
         self.console = Console(width=width, record=record)
         self.version = version or "0.1.0"
@@ -171,13 +173,6 @@ class AgentUI():
         self.console.print(f"\n[green][{time_now()}]🖱️\x20\x20用户选择:\n\r{response}[/green]")
         return response
 
-    def bye(self):
-        with Status(status="正在保存会话历史，期待下次再见！！！", spinner="clock") as status:
-            status.start()
-            self.show_usage()
-            self.save_trajectory()
-            time.sleep(3)
-    
     def save_trajectory(self):
         if not self.record:
             return
@@ -187,6 +182,18 @@ class AgentUI():
         with open(path, "w") as f:
             f.write(data)
     
+    def save_snapshot(self, messages: List):
+        data = {
+            "project_root": get_project_root(),
+            "permission_mode": get_permission_mode(),
+            "llm_provider": self.llm.get_provider(),
+            "messages": messages
+        }
+        from src.paths import get_snapshot_dir
+        path = get_snapshot_dir() / f"resume_{self.uid}.pkl"
+        with open(path, "wb") as f:
+            pickle.dump(data, f)
+        
     def show_usage(self):
         total_tokens = self.llm.input_tokens + self.llm.output_tokens
         cached_tokens = self.llm.cache_hit_tokens + self.llm.cache_miss_tokens
@@ -214,3 +221,12 @@ class AgentUI():
         self.console.print(f"[green bold] 语言模型: [/green bold]{self.llm.get_provider()}")
         self.console.print(f"[green bold] 项目路径: [/green bold]{get_project_root()}")
         self.console.print(f"[cyan]{'-'*80}[/cyan]")
+
+    def bye(self, messages: List):
+        with Status(status="正在保存会话历史，期待下次再见！！！", spinner="clock") as status:
+            status.start()
+            self.show_usage()
+            self.save_trajectory()
+            self.save_snapshot(messages)
+            time.sleep(3)
+        self.console.print(f"\n[gray]注意：您可以通过执行 /resume {self.uid} 恢复本次会话[/gray]")

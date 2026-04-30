@@ -15,31 +15,31 @@ def get_project_root() -> Path:
     project_root.mkdir(parents=True, exist_ok=True)
     return project_root.resolve()
 
-# 用于存放技能文件
+# 存放技能文件
 def get_skills_dir() -> Path:
     skills_dir = get_project_root() / ".agents" / "skills"
     skills_dir.mkdir(parents=True, exist_ok=True)
     return skills_dir.resolve()
 
-# 用于存放用户和编程助手交互过程的轨迹
+# 存放用户和编程助手交互过程的轨迹文件
 def get_trajectory_dir() -> Path:
     trajectory_dir = get_project_root() / ".agents" / "trajectory"
     trajectory_dir.mkdir(parents=True, exist_ok=True)
     return trajectory_dir.resolve()
 
-# 用于存放上下文压缩前消息列表的副本
+# 存放上下文压缩前消息列表的副本，或者存放工具产生的大文件的副本
 def get_transcripts_dir() -> Path:
     transcripts_dir = get_project_root() / ".agents" / "transcripts"
     transcripts_dir.mkdir(parents=True, exist_ok=True)
     return transcripts_dir.resolve()
 
-# 用于存放调用工具后产生的大尺寸文件的快照
+# 存放会话历史快照，用于下一次恢复会话
 def get_snapshot_dir() -> Path:
     snapshot_dir = get_project_root() / ".agents" / "snapshots"
     snapshot_dir.mkdir(parents=True, exist_ok=True)
     return snapshot_dir.resolve()
 
-# 用于存放记忆文件
+# 存放记忆文件
 def get_memory_dir() -> Path:
     memory_dir = get_project_root() / ".agents" / "memory"
     memory_dir.mkdir(parents=True, exist_ok=True)

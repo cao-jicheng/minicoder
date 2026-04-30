@@ -13,7 +13,7 @@ from typing import List, Dict, Callable, Any
 from src.config import (ui, dangerous_commands, max_output_length, 
     max_memory_entities, max_subagent_rounds, glob_ignored)
 from src.paths import (get_project_root, get_skills_dir, get_memory_dir,
-    get_snapshot_dir, get_permission_mode, allow_subagent)
+    get_transcripts_dir, get_permission_mode, allow_subagent)
 
 @dataclass
 class TodoItem:
@@ -202,9 +202,9 @@ def tool_hander(name, args, messages) -> Any:
 def persist_large_output(tool_calls_id: str, output: str) -> str:
     if len(output) < max_output_length:
         return output
-    stored_path = get_snapshot_dir() / f"{tool_calls_id}.txt"
+    stored_path = get_transcripts_dir() / f"output_{tool_calls_id}.txt"
     stored_path.write_text(output)
-    preview = output[:2000]
+    preview = output[:1000]
     return (
         f"<persisted-output>\n"
         f"原始输出尺寸过大，完整版本已保存到：{stored_path}\n"

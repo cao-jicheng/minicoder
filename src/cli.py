@@ -67,7 +67,7 @@ def main(
         show_status, show_messages, set_permission, set_model,
         list_tools, list_skills, list_memory, clear_context,
         compact_context, install_skills, invoke_with_llm_once,
-        backout_messages)
+        backout_messages, load_snapshot)
 
     llm = OpenAILLM(model=model, base_url=base_url, api_key=api_key)
     ui.set_llm(llm)
@@ -78,10 +78,10 @@ def main(
         try:
             query = ui.input()
         except (EOFError, KeyboardInterrupt):
-            ui.bye()
+            ui.bye(context_history)
             break
         if query.lower() in ("quit", "bye", "exit"):
-            ui.bye()
+            ui.bye(context_history)
             break
         # 处理斜杠命令
         if query.startswith('/'):
@@ -94,10 +94,10 @@ def main(
             elif query == "/init":
                 continue
             elif query == "/permission":
-                set_permission()
+                set_permission(context_history)
                 continue
             elif query == "/model":
-                set_model()
+                set_model(context_history)
                 continue
             elif query == "/tools":
                 list_tools()
@@ -128,6 +128,9 @@ def main(
                 continue
             elif query.startswith("/rewind"):
                 backout_messages(query, context_history)
+                continue
+            elif query.startswith("/resume"):
+                load_snapshot(query, context_history)
                 continue
         if query.startswith("npx skills add"):
             install_skills(query, context_history)
